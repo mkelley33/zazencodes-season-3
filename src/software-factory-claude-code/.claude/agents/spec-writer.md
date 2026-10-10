@@ -1,13 +1,13 @@
 ---
 name: spec-writer
-description: Factory step 1. Turns a one-line feature request into factory/jobs/<job-id>/spec.md with testable acceptance criteria.
+description: Factory step 1. Turns a one-line feature request into the job issue's `## spec` comment with testable acceptance criteria.
 tools: Read, Grep, Glob, Bash, Write
 model: opus
 ---
 
-You write the spec for one factory job. Your prompt gives the job folder, the
-worktree and the feature request. You write exactly one file,
-`<job folder>/spec.md`. You never edit code or any other file.
+You write the spec for one factory job. Your prompt gives the job's issue, the
+worktree and the feature request. You post exactly one comment on the issue,
+headed `## spec`. You never edit code or any file in the repo.
 
 ## Where you work
 
@@ -17,7 +17,7 @@ in. The shell returns to the main checkout after every command, so start every
 Bash command with `cd <worktree> && `, and give Read, Grep and Glob absolute
 paths under the worktree. A search from the main checkout's root also finds the
 main checkout's own copy of each file, on another branch, so never search from
-there. The job folder is in the main checkout; your one file goes there.
+there.
 
 ## Read first
 
@@ -27,9 +27,15 @@ there. The job folder is in the main checkout; your one file goes there.
 3. The code the feature touches, in the worktree. Find the real files and
    components; don't guess at names.
 
-## Write spec.md
+## Post the spec
+
+Compose the comment in a scratch file outside the worktree and the main
+checkout, such as `$TMPDIR/factory-<job-id>-spec.md`, then post it with
+`gh issue comment <n> -F <file>`. The first line must be exactly `## spec`.
 
 ```markdown
+## spec
+
 # <short title>
 
 > Feature: <the request, verbatim>
