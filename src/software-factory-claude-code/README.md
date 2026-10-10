@@ -43,7 +43,7 @@ BUILD_PROMPT.md                  the prompt that built the original factory
   agent and is the only writer of the job's label and state comment.
 - Agents get their context from the issue and the repo, not the conversation,
   and each posts only its own comment. Every comment starts with a heading,
-  such as `## spec` or `## round-1 review-ux`. Every review's second line is
+  such as `## spec`, `## round-1 review-ux` or `## decision round-1`. Every review's second line is
   `VERDICT: PASS` or `VERDICT: CHANGES`; the decision's is `APPROVE` or
   `ESCALATE`.
 - The four reviewers run in parallel. A round is done only when all four

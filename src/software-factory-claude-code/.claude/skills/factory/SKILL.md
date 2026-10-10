@@ -29,7 +29,7 @@ feature → spec-writer → builder → [security, ux, ui, code] → WAIT FOR AL
 |              | `reviewer-ux`           | `## round-<N> review-ux`                     |
 |              | `reviewer-ui`           | `## round-<N> review-ui`                     |
 |              | `reviewer-code`         | `## round-<N> review-code`                   |
-| approve      | `approver`              | `## decision`                                |
+| approve      | `approver`              | `## decision round-<N>`                      |
 
 `MAX_RESUMES = 2`: after round 1 the builder can be resumed at most twice, so a
 run has at most 3 review rounds. To change the factory, edit this file and the
@@ -119,11 +119,14 @@ heading, and the latest comment with a heading wins.
 | build (round N) | `## build round-<N>`            | `STATUS: READY\|BLOCKED` |
 | review          | `## round-<N> review-<kind>`    | `VERDICT: PASS\|CHANGES` |
 | rework          | `## rework-<k>`                 | note verbatim            |
-| decision        | `## decision`                   | `APPROVE\|ESCALATE`      |
+| decision        | `## decision round-<N>`         | `APPROVE\|ESCALATE`      |
 
-Read comments with `gh issue view <n> --comments --json comments --jq '.comments[].body'`.
-To check one artifact, take the latest comment whose first line is its heading
-and read its second line.
+Read comments with
+`gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
+Every comment starts at a `=== comment` line; its heading is the line after
+that. To check one artifact, take the latest comment with its heading and read
+the line after the heading. Headings carry the round, so an artifact from an
+earlier round can never pass for the current one.
 
 ### Prompts
 
@@ -204,7 +207,7 @@ Read the second line of the latest `## build round-<N>` comment.
      `Round N reviews are on issue #<n>. Address every review with VERDICT: CHANGES, commit, and post the build comment for round N+1.`
      Wait for it to finish, then go to **Build check**.
    - **Any CHANGES, no resumes left**: post the decision yourself, a comment
-     reading `## decision`, then `ESCALATE`, then a blank line, then
+     reading `## decision round-N`, then `ESCALATE`, then a blank line, then
      `Review rounds exhausted. Outstanding CHANGES in round N from: <reviewers>.`
      Then open one follow-up issue per outstanding reviewer:
      `gh issue create --title "<kind> follow-up: <feature>" --label factory --body-file <file>`
@@ -217,16 +220,20 @@ Read the second line of the latest `## build round-<N>` comment.
 
 Set the stage to `factory:approve`. Spawn `approver` with the prompt
 `<paths> Final round: N.` When it finishes, read the second line of the
-`## decision` comment:
+`## decision round-N` comment:
 
 - `APPROVE`: go to **Merge**.
 - `ESCALATE`: go to **Needs human**.
+- No comment for round N: stop and tell the user. Never act on a decision
+  from an earlier round.
 
 ### Merge
 
 The merge happens in the main checkout, so it must be clean and on `main`:
-`git status --porcelain` prints nothing and `git branch --show-current` prints
-`main`. If not, set the stage to `factory:needs-human` and tell the user the
+`git status --porcelain -- . ':!.claude/worktrees'` prints nothing and
+`git branch --show-current` prints `main`. `.claude/worktrees/` is exempt
+because the job worktrees live there and a repo need not ignore it. If not,
+set the stage to `factory:needs-human` and tell the user the
 job is approved but the main checkout is busy; they run
 `/factory approve <job-id>` once it is clean. Otherwise:
 
@@ -249,13 +256,13 @@ printed. Never push.
 
 Set the stage to `factory:needs-human`. The branch and its worktree stay for
 the human to inspect. Tell the user which job is waiting, give the issue URL
-and the worktree path, and quote the `## decision` comment (or the BLOCKED
+and the worktree path, and quote the latest `## decision round-N` comment (or the BLOCKED
 reason from the build comment).
 
 ## /factory next
 
 1. List the queue: open `factory` issues with no stage label, oldest first:
-   `gh issue list --label factory --state open --json number,title,labels,createdAt --jq '[.[] | select(all(.labels[].name; startswith("factory:") | not))] | sort_by(.createdAt) | .[] | "\(.number)\t\(.title)"'`
+   `gh issue list --label factory --state open -L 500 --json number,title,labels,createdAt --jq '[.[] | select(all(.labels[].name; startswith("factory:") | not))] | sort_by(.createdAt) | .[] | "\(.number)\t\(.title)"'`
    If it prints nothing, say the queue is empty and stop.
 2. Claim the first issue. Make a session id once per session, for example
    `$(hostname)-$$-$(date +%s)`, and post the comment

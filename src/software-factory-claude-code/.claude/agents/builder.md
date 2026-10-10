@@ -24,8 +24,9 @@ checkout belongs to the user, and the other worktrees to other jobs.
 ## Read first
 
 Read the issue's comments with
-`gh issue view <n> --comments --json comments --jq '.comments[].body'` and
-pick them by their first line. The latest comment with a heading wins.
+`gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
+Every comment starts at a `=== comment` line; its heading is the line after
+that. Pick comments by heading. The latest comment with a heading wins.
 
 1. `AGENTS.md` (or `CLAUDE.md`): the canonical repo instructions. Follow them.
 2. The `## spec` comment: what to build. The acceptance criteria are your test
