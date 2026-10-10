@@ -12,7 +12,7 @@ The content of `src/software-factory-claude-code`, laid out like a repository ro
 _Avoid_: Source, factory
 
 **Install**:
-An Additive copy of the Template into a Target, followed by the setup the Target needs before its first factory run.
+An Additive copy of the Template into a Target, followed by the setup the Target needs before its first factory run. With `--force`, the Install also makes an Overwrite of every different Skip that is a regular file.
 _Avoid_: Copy, deploy
 
 **Target**:
@@ -25,7 +25,11 @@ _Avoid_: Merge, sync
 
 **Skip**:
 A Template file left uncopied because the Target already has an entry at that path. An identical Skip has the same content as the Template file; a different Skip does not.
-_Avoid_: Clobber, overwrite
+_Avoid_: Clobber
+
+**Overwrite**:
+A different Skip that is a regular file, not a symlink, replaced with the Template file because the Install ran with `--force`. A directory or a symlink at a Template file's path is never overwritten.
+_Avoid_: Clobber, force copy
 
 **Conflict**:
 A Target entry that cannot act as a directory where the Template has one: a symlink or a file. A Conflict blocks the whole Additive copy.
