@@ -15,6 +15,9 @@
 #   - Conflict: the Target has a symlink or a file where the Template has a
 #               directory. Every Conflict is listed and nothing is copied.
 #
+# The last step installs the agent-browser CLI with Homebrew when it is not on
+# the PATH yet.
+#
 # See CONTEXT.md for the terms. Written for bash 3.2 (the macOS default).
 #
 # SOFTWARE_FACTORY_TEMPLATE_DIR overrides the Template location (used by the
@@ -29,6 +32,7 @@ EXAMPLE_JOBS_DIR="factory/jobs"
 BACKLOG_PATH="factory/backlog.md"
 GITIGNORE_RULE="/$EXAMPLE_JOBS_DIR/"
 GITIGNORE_COMMENT="# Software factory job folders are runtime state"
+AGENT_BROWSER_URL="https://github.com/vercel-labs/agent-browser#installation"
 
 die() {
   printf '%s\n' "$1" >&2
@@ -89,6 +93,33 @@ ensure_gitignore_rule() {
   fi
   printf '%s\n%s\n' "$GITIGNORE_COMMENT" "$GITIGNORE_RULE" >> "$gitignore"
   gitignore_status="updated with $GITIGNORE_RULE"
+}
+
+# Installs the agent-browser CLI that the builder and the UI and UX reviewers
+# drive. It is machine-wide, so the step does nothing once it is on the PATH.
+# Homebrew keeps it reachable whichever Node version a Target pins; a global
+# npm install would be tied to one Node version.
+install_agent_browser() {
+  if command -v agent-browser > /dev/null 2>&1; then
+    printf 'agent-browser: already installed.\n'
+    return 0
+  fi
+
+  if ! command -v brew > /dev/null 2>&1; then
+    printf 'agent-browser: not installed, and Homebrew was not found. Install it by hand: %s\n' \
+      "$AGENT_BROWSER_URL" >&2
+    return 0
+  fi
+
+  printf 'agent-browser: installing with Homebrew.\n'
+  if brew install agent-browser && agent-browser install; then
+    printf 'agent-browser: installed.\n'
+    return 0
+  fi
+
+  printf 'agent-browser: install failed. The copy above is complete. Install it by hand: %s\n' \
+    "$AGENT_BROWSER_URL" >&2
+  return 1
 }
 
 command -v rsync > /dev/null 2>&1 || die "rsync is required but was not found."
@@ -198,3 +229,9 @@ printf '\n.gitignore: %s\n' "$gitignore_status"
 
 printf '\nDone: %s added, %s identical, %s different.\n' \
   "$added_count" "$identical_count" "$different_count"
+
+# --- agent-browser -----------------------------------------------------------
+
+# Last, so a failed download cannot hide the report above.
+printf '\n'
+install_agent_browser

@@ -7,6 +7,9 @@
 # Every case builds its own fixture Template and Target under a temporary
 # directory, pipes the Target path into the script, and asserts on the
 # resulting file tree and output. Written for bash 3.2 (the macOS default).
+#
+# The script never sees the real PATH: it gets the case's own bin directory
+# plus the system directories, so no test can reach Homebrew or the network.
 
 set -u
 
@@ -24,6 +27,9 @@ case_name=""
 case_dir=""
 template=""
 target=""
+call_log=""
+run_home=""
+run_cwd=""
 output=""
 status=0
 
@@ -48,7 +54,12 @@ begin_case() {
   case_dir="$WORK/case-$case_count"
   template="$case_dir/template"
   target="$case_dir/target"
-  mkdir -p "$target"
+  call_log="$case_dir/calls.log"
+  run_home="$HOME"
+  run_cwd="$WORK"
+  mkdir -p "$target" "$case_dir/bin"
+  : > "$call_log"
+  fake_command agent-browser 0
   write_file "$template/.claude/agents/builder.md" "template builder"
   write_file "$template/.claude/skills/factory/SKILL.md" "template skill"
   write_file "$template/factory/backlog.md" "# Backlog
@@ -60,9 +71,31 @@ begin_case() {
   write_file "$template/README.md" "template readme"
 }
 
-# Runs the script against the fixture Template with $1 typed at the prompt.
+# Puts a fake command named $1 on the case's PATH. It records its arguments in
+# the call log, runs the optional shell code in $3, and exits with status $2.
+fake_command() {
+  cat > "$case_dir/bin/$1" <<FAKE
+#!/bin/bash
+printf '%s %s\n' "$1" "\$*" >> "$call_log"
+${3:-}
+exit $2
+FAKE
+  chmod +x "$case_dir/bin/$1"
+}
+
+# Makes agent-browser missing, with a fake Homebrew that installs a fake
+# agent-browser whose own commands exit with status $1.
+agent_browser_missing_with_brew() {
+  fake_command agent-browser "$1"
+  mv "$case_dir/bin/agent-browser" "$case_dir/agent-browser.fake"
+  fake_command brew 0 "cp '$case_dir/agent-browser.fake' '$case_dir/bin/agent-browser'"
+}
+
+# Runs the script with $1 typed at the prompt. Uses the fixture Template, or
+# the real one when $template is empty.
 run_install() {
-  output="$(printf '%s\n' "$1" | SOFTWARE_FACTORY_TEMPLATE_DIR="$template" bash "$SCRIPT" 2>&1)"
+  output="$(cd "$run_cwd" && printf '%s\n' "$1" | env PATH="$case_dir/bin:/usr/bin:/bin" \
+    HOME="$run_home" SOFTWARE_FACTORY_TEMPLATE_DIR="$template" bash "$SCRIPT" 2>&1)"
   status=$?
 }
 
@@ -342,14 +375,14 @@ assert_failed
 assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
 
 begin_case "leading tilde expands to the home directory"
-output="$(printf '%s\n' "~/target" | HOME="$case_dir" SOFTWARE_FACTORY_TEMPLATE_DIR="$template" bash "$SCRIPT" 2>&1)"
-status=$?
+run_home="$case_dir"
+run_install "~/target"
 assert_status 0
 assert_content "$target/factory/dashboard.html" "template dashboard"
 
 begin_case "relative path resolves against the current directory"
-output="$(cd "$case_dir" && printf '%s\n' "target" | SOFTWARE_FACTORY_TEMPLATE_DIR="$template" bash "$SCRIPT" 2>&1)"
-status=$?
+run_cwd="$case_dir"
+run_install "target"
 assert_status 0
 assert_content "$target/factory/dashboard.html" "template dashboard"
 
@@ -379,9 +412,60 @@ run_install "$target"
 assert_status 0
 assert_output_lacks "not a git repository"
 
+begin_case "agent-browser already on the PATH is not installed again"
+fake_command brew 0
+run_install "$target"
+assert_status 0
+assert_output_contains "agent-browser: already installed"
+assert_equal "" "$(cat "$call_log")" "expected no brew or agent-browser calls"
+
+begin_case "missing agent-browser is installed with Homebrew after the report"
+agent_browser_missing_with_brew 0
+run_install "$target"
+assert_status 0
+assert_equal "brew install agent-browser
+agent-browser install" "$(cat "$call_log")" "expected brew install, then agent-browser install"
+assert_output_contains "agent-browser: installed"
+case "$output" in
+  *"Done: 5 added"*"agent-browser: installing"*) ;;
+  *) fail "expected the copy report before the agent-browser step. Output: $output" ;;
+esac
+
+begin_case "missing agent-browser without Homebrew prints manual steps and continues"
+rm "$case_dir/bin/agent-browser"
+run_install "$target"
+assert_status 0
+assert_output_contains "https://github.com/vercel-labs/agent-browser"
+assert_equal "" "$(cat "$call_log")" "expected no brew or agent-browser calls"
+
+begin_case "failed brew install exits non-zero but keeps the copy"
+rm "$case_dir/bin/agent-browser"
+fake_command brew 1
+run_install "$target"
+assert_failed
+assert_equal "brew install agent-browser" "$(cat "$call_log")" "expected only the brew install call"
+assert_output_contains "https://github.com/vercel-labs/agent-browser"
+assert_content "$target/factory/dashboard.html" "template dashboard"
+assert_content "$target/.gitignore" "$GITIGNORE_COMMENT
+/factory/jobs/"
+
+begin_case "failed agent-browser install exits non-zero but keeps the copy"
+agent_browser_missing_with_brew 1
+run_install "$target"
+assert_failed
+assert_output_contains "https://github.com/vercel-labs/agent-browser"
+assert_content "$target/factory/dashboard.html" "template dashboard"
+
+begin_case "Conflict aborts before the agent-browser step"
+agent_browser_missing_with_brew 0
+write_file "$target/factory" "i am a file"
+run_install "$target"
+assert_failed
+assert_equal "" "$(cat "$call_log")" "expected no brew or agent-browser calls"
+
 begin_case "the real Template is used when no override is set"
-output="$(printf '%s\n' "$target" | bash "$SCRIPT" 2>&1)"
-status=$?
+template=""
+run_install "$target"
 assert_status 0
 assert_equal "" "$(diff -r -x .DS_Store -x .gitignore -x jobs -x backlog.md "$REAL_TEMPLATE" "$target" 2>&1)" \
   "expected the Target to match the real Template apart from jobs and backlog.md"
