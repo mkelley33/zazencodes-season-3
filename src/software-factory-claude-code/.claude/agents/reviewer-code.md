@@ -22,8 +22,9 @@ own copy of each file, on another branch, so never search from there.
 ## Read
 
 Read the issue's comments with
-`gh issue view <n> --comments --json comments --jq '.comments[].body'` and
-pick them by their first line. The latest comment with a heading wins.
+`gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
+Every comment starts at a `=== comment` line; its heading is the line after
+that. Pick comments by heading. The latest comment with a heading wins.
 
 1. `AGENTS.md` (or `CLAUDE.md`), plus any doc it says to read for the area the
    branch touches.
