@@ -5,11 +5,19 @@ scripts that place a video's project template into another project.
 
 ## Language
 
-### Template copy
+### Template install
 
 **Template**:
 The content of `src/software-factory-claude-code`, laid out like a repository root so it can be placed into another project.
 _Avoid_: Source, factory
+
+**Example job**:
+A job folder shipped in the Template to demonstrate the dashboard. An Example job is never part of an Install.
+_Avoid_: Sample job, demo job
+
+**Install**:
+An Additive copy of the Template into a Target, followed by the setup the Target needs before its first factory run.
+_Avoid_: Copy, deploy
 
 **Target**:
 An existing directory that receives the Template.
