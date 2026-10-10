@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
-# Additive copy of the software factory Template into a Target directory.
+# Install of the software factory Template into a Target directory.
 #
 # Run: bash scripts/install-software-factory.sh
 #
-# Prompts for the Target path, then adds every Template file the Target does
-# not have yet. Nothing that already exists in the Target is changed or
-# removed:
+# Prompts for the Target path, then makes an Additive copy: every Template
+# file the Target does not have yet is added. Example jobs are never copied,
+# and factory/backlog.md is written without its checked items. Nothing that
+# already exists in the Target is changed or removed:
 #
 #   - Skip:     the Target already has an entry at a Template file's path.
 #               The entry is left alone and reported as identical or different.
@@ -23,16 +24,35 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR="${SOFTWARE_FACTORY_TEMPLATE_DIR:-$SCRIPT_DIR/../src/software-factory-claude-code}"
 
+EXAMPLE_JOBS_DIR="factory/jobs"
+BACKLOG_PATH="factory/backlog.md"
+
 die() {
   printf '%s\n' "$1" >&2
   exit 1
 }
 
-# Lists Template entries as paths relative to the Template root.
+# Lists the Template entries to install as paths relative to the Template
+# root. Example jobs are left out; the directory that holds them is kept.
 # $1 is a find(1) type test: "-type d" for directories, "! -type d" for files.
 list_template_entries() {
   # shellcheck disable=SC2086 # $1 is a find expression that must split
-  (cd "$template" && find . -mindepth 1 $1 ! -name .DS_Store | sort) | sed 's|^\./||'
+  (cd "$template" && find . -mindepth 1 $1 ! -name .DS_Store | sort) \
+    | sed -e 's|^\./||' -e "\|^$EXAMPLE_JOBS_DIR/|d"
+}
+
+# Prints the Template backlog without its checked items.
+backlog_without_checked_items() {
+  sed -e '/^[[:space:]]*- \[[xX]\]/d' "$template/$BACKLOG_PATH"
+}
+
+# Succeeds when the Target entry has the content the install would write.
+has_installed_content() {
+  if [ "$1" = "$BACKLOG_PATH" ]; then
+    backlog_without_checked_items | cmp -s - "$target/$1"
+  else
+    cmp -s "$template/$1" "$target/$1"
+  fi
 }
 
 command -v rsync > /dev/null 2>&1 || die "rsync is required but was not found."
@@ -85,6 +105,7 @@ fi
 
 added=""
 different=""
+backlog_is_added=false
 added_count=0
 identical_count=0
 different_count=0
@@ -94,7 +115,10 @@ while IFS= read -r relative_path; do
   if [ ! -e "$target_entry" ] && [ ! -L "$target_entry" ]; then
     added="$added  $relative_path"$'\n'
     added_count=$((added_count + 1))
-  elif [ -f "$target_entry" ] && cmp -s "$template/$relative_path" "$target_entry"; then
+    if [ "$relative_path" = "$BACKLOG_PATH" ]; then
+      backlog_is_added=true
+    fi
+  elif [ -f "$target_entry" ] && has_installed_content "$relative_path"; then
     identical_count=$((identical_count + 1))
   else
     different="$different  $relative_path"$'\n'
@@ -106,7 +130,13 @@ done < <(list_template_entries "! -type d")
 
 # -rl, not -a: -a would rewrite permissions and timestamps on directories the
 # Target already has.
-rsync -rl --ignore-existing --exclude .DS_Store "$template/" "$target/"
+rsync -rl --ignore-existing --exclude .DS_Store \
+  --exclude "/$EXAMPLE_JOBS_DIR/*" --exclude "/$BACKLOG_PATH" \
+  "$template/" "$target/"
+
+if [ "$backlog_is_added" = true ]; then
+  backlog_without_checked_items > "$target/$BACKLOG_PATH"
+fi
 
 # --- report ------------------------------------------------------------------
 

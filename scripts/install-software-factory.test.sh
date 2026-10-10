@@ -34,7 +34,12 @@ write_file() {
   printf '%s\n' "$2" > "$1"
 }
 
-# Starts a new case: a fixture Template with four files and an empty Target.
+EXPECTED_BACKLOG="# Backlog
+
+- [ ] Open item"
+
+# Starts a new case: an empty Target and a fixture Template with five files to
+# install plus one Example job and one checked backlog item that must stay out.
 begin_case() {
   case_count=$((case_count + 1))
   case_name="$1"
@@ -44,7 +49,12 @@ begin_case() {
   mkdir -p "$target"
   write_file "$template/.claude/agents/builder.md" "template builder"
   write_file "$template/.claude/skills/factory/SKILL.md" "template skill"
-  write_file "$template/factory/backlog.md" "template backlog"
+  write_file "$template/factory/backlog.md" "# Backlog
+
+- [x] Done item → 001-example
+- [ ] Open item"
+  write_file "$template/factory/dashboard.html" "template dashboard"
+  write_file "$template/factory/jobs/001-example/job.json" "example job"
   write_file "$template/README.md" "template readme"
 }
 
@@ -125,16 +135,43 @@ run_install "$target"
 assert_status 0
 assert_content "$target/.claude/agents/builder.md" "template builder"
 assert_content "$target/.claude/skills/factory/SKILL.md" "template skill"
-assert_content "$target/factory/backlog.md" "template backlog"
+assert_content "$target/factory/dashboard.html" "template dashboard"
 assert_content "$target/README.md" "template readme"
-assert_output_contains "4 added, 0 identical, 0 different"
+assert_output_contains "5 added, 0 identical, 0 different"
+
+begin_case "Example jobs are never copied and factory/jobs is left empty"
+run_install "$target"
+assert_status 0
+assert_equal "" "$(ls -A "$target/factory/jobs" 2>&1)" "expected an empty factory/jobs directory"
+assert_output_lacks "001-example"
+
+begin_case "backlog.md is written without checked items"
+run_install "$target"
+assert_status 0
+assert_content "$target/factory/backlog.md" "$EXPECTED_BACKLOG"
+assert_output_contains "  factory/backlog.md"
+
+begin_case "existing backlog.md keeps its checked items and is a different Skip"
+write_file "$target/factory/backlog.md" "- [x] My item → 001-mine"
+run_install "$target"
+assert_status 0
+assert_content "$target/factory/backlog.md" "- [x] My item → 001-mine"
+assert_output_contains "4 added, 0 identical, 1 different"
+assert_output_contains "  factory/backlog.md"
+
+begin_case "existing jobs in the Target are left alone"
+write_file "$target/factory/jobs/001-mine/job.json" "my job"
+before="$(snapshot "$target/factory/jobs")"
+run_install "$target"
+assert_status 0
+assert_equal "$before" "$(snapshot "$target/factory/jobs")" "expected factory/jobs to be unchanged"
 
 begin_case "existing file with different content is a different Skip"
 write_file "$target/README.md" "my readme"
 run_install "$target"
 assert_status 0
 assert_content "$target/README.md" "my readme"
-assert_output_contains "3 added, 0 identical, 1 different"
+assert_output_contains "4 added, 0 identical, 1 different"
 assert_output_contains "  README.md"
 
 begin_case "existing file with identical content is an identical Skip"
@@ -142,7 +179,7 @@ write_file "$target/README.md" "template readme"
 run_install "$target"
 assert_status 0
 assert_content "$target/README.md" "template readme"
-assert_output_contains "3 added, 1 identical, 0 different"
+assert_output_contains "4 added, 1 identical, 0 different"
 assert_output_lacks "  README.md"
 
 begin_case "Target .claude keeps every file unchanged and gains new ones"
@@ -161,7 +198,7 @@ assert_content "$target/.claude/skills/factory/SKILL.md" "template skill"
 rm -rf "$target/.claude/skills"
 assert_equal "$before" "$(snapshot "$target/.claude")" \
   "expected .claude to differ from before only by the added skills directory"
-assert_output_contains "3 added, 0 identical, 1 different"
+assert_output_contains "4 added, 0 identical, 1 different"
 assert_output_contains "  .claude/agents/builder.md"
 
 begin_case "symlinked .claude in Target is a Conflict and nothing is copied"
@@ -196,8 +233,8 @@ write_file "$target/README.md/keep.txt" "keep me"
 run_install "$target"
 assert_status 0
 assert_content "$target/README.md/keep.txt" "keep me"
-assert_content "$target/factory/backlog.md" "template backlog"
-assert_output_contains "3 added, 0 identical, 1 different"
+assert_content "$target/factory/dashboard.html" "template dashboard"
+assert_output_contains "4 added, 0 identical, 1 different"
 
 begin_case "symlink where the Template has a file is a Skip and stays a symlink"
 write_file "$target/NOTES.md" "my notes"
@@ -206,7 +243,7 @@ run_install "$target"
 assert_status 0
 assert_equal "NOTES.md" "$(readlink "$target/README.md")" "expected README.md to stay a symlink"
 assert_content "$target/NOTES.md" "my notes"
-assert_output_contains "3 added, 0 identical, 1 different"
+assert_output_contains "4 added, 0 identical, 1 different"
 
 begin_case "missing Target aborts and is not created"
 run_install "$case_dir/does-not-exist"
@@ -242,27 +279,27 @@ begin_case "leading tilde expands to the home directory"
 output="$(printf '%s\n' "~/target" | HOME="$case_dir" SOFTWARE_FACTORY_TEMPLATE_DIR="$template" bash "$SCRIPT" 2>&1)"
 status=$?
 assert_status 0
-assert_content "$target/factory/backlog.md" "template backlog"
+assert_content "$target/factory/dashboard.html" "template dashboard"
 
 begin_case "relative path resolves against the current directory"
 output="$(cd "$case_dir" && printf '%s\n' "target" | SOFTWARE_FACTORY_TEMPLATE_DIR="$template" bash "$SCRIPT" 2>&1)"
 status=$?
 assert_status 0
-assert_content "$target/factory/backlog.md" "template backlog"
+assert_content "$target/factory/dashboard.html" "template dashboard"
 
 begin_case "Target path with spaces works"
 target="$case_dir/my target"
 mkdir -p "$target"
 run_install "$target"
 assert_status 0
-assert_content "$target/factory/backlog.md" "template backlog"
+assert_content "$target/factory/dashboard.html" "template dashboard"
 
 begin_case "second run on the same Target adds nothing"
 run_install "$target"
 before="$(snapshot "$target")"
 run_install "$target"
 assert_status 0
-assert_output_contains "0 added, 4 identical, 0 different"
+assert_output_contains "0 added, 5 identical, 0 different"
 assert_equal "$before" "$(snapshot "$target")" "expected the second run to change nothing"
 
 begin_case "Target outside a git repository gets a warning but is copied"
@@ -280,8 +317,14 @@ begin_case "the real Template is used when no override is set"
 output="$(printf '%s\n' "$target" | bash "$SCRIPT" 2>&1)"
 status=$?
 assert_status 0
-assert_equal "" "$(diff -r -x .DS_Store "$REAL_TEMPLATE" "$target" 2>&1)" \
-  "expected the Target to match the real Template"
+assert_equal "" "$(diff -r -x .DS_Store -x jobs -x backlog.md "$REAL_TEMPLATE" "$target" 2>&1)" \
+  "expected the Target to match the real Template apart from jobs and backlog.md"
+assert_equal "" "$(ls -A "$target/factory/jobs" 2>&1)" "expected an empty factory/jobs directory"
+assert_equal "0" "$(grep -c -E '^- \[[xX]\]' "$target/factory/backlog.md")" \
+  "expected no checked items in backlog.md"
+assert_equal "$(grep -c '' "$REAL_TEMPLATE/factory/backlog.md")" \
+  "$(($(grep -c '' "$target/factory/backlog.md") + $(grep -c -E '^- \[[xX]\]' "$REAL_TEMPLATE/factory/backlog.md")))" \
+  "expected backlog.md to lose only its checked items"
 
 # --- summary ----------------------------------------------------------------
 
