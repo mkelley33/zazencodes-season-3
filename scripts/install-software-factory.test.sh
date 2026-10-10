@@ -40,14 +40,8 @@ write_file() {
   printf '%s\n' "$2" > "$1"
 }
 
-GITIGNORE_COMMENT="# Software factory job folders are runtime state"
-
-EXPECTED_BACKLOG="# Backlog
-
-- [ ] Open item"
-
-# Starts a new case: an empty Target and a fixture Template with five files to
-# install plus one Example job and one checked backlog item that must stay out.
+# Starts a new case: an empty Target and a fixture Template with four files to
+# install. agent-browser and gh are on the PATH unless a case removes them.
 begin_case() {
   case_count=$((case_count + 1))
   case_name="$1"
@@ -60,14 +54,10 @@ begin_case() {
   mkdir -p "$target" "$case_dir/bin"
   : > "$call_log"
   fake_command agent-browser 0
+  fake_command gh 0
   write_file "$template/.claude/agents/builder.md" "template builder"
   write_file "$template/.claude/skills/factory/SKILL.md" "template skill"
-  write_file "$template/factory/backlog.md" "# Backlog
-
-- [x] Done item → 001-example
-- [ ] Open item"
   write_file "$template/factory/dashboard.html" "template dashboard"
-  write_file "$template/factory/jobs/001-example/job.json" "example job"
   write_file "$template/README.md" "template readme"
 }
 
@@ -172,41 +162,28 @@ assert_content "$target/.claude/agents/builder.md" "template builder"
 assert_content "$target/.claude/skills/factory/SKILL.md" "template skill"
 assert_content "$target/factory/dashboard.html" "template dashboard"
 assert_content "$target/README.md" "template readme"
-assert_output_contains "5 added, 0 identical, 0 different"
+assert_output_contains "4 added, 0 identical, 0 different"
 
-begin_case "Example jobs are never copied and factory/jobs is left empty"
+begin_case "install writes no job folders, backlog or .gitignore"
 run_install "$target"
 assert_status 0
-assert_equal "" "$(ls -A "$target/factory/jobs" 2>&1)" "expected an empty factory/jobs directory"
-assert_output_lacks "001-example"
+assert_missing "$target/factory/jobs"
+assert_missing "$target/factory/backlog.md"
+assert_missing "$target/.gitignore"
+assert_output_lacks ".gitignore"
 
-begin_case "backlog.md is written without checked items"
+begin_case "existing .gitignore is left alone"
+write_file "$target/.gitignore" "node_modules/"
 run_install "$target"
 assert_status 0
-assert_content "$target/factory/backlog.md" "$EXPECTED_BACKLOG"
-assert_output_contains "  factory/backlog.md"
-
-begin_case "existing backlog.md keeps its checked items and is a different Skip"
-write_file "$target/factory/backlog.md" "- [x] My item → 001-mine"
-run_install "$target"
-assert_status 0
-assert_content "$target/factory/backlog.md" "- [x] My item → 001-mine"
-assert_output_contains "4 added, 0 identical, 1 different"
-assert_output_contains "  factory/backlog.md"
-
-begin_case "existing jobs in the Target are left alone"
-write_file "$target/factory/jobs/001-mine/job.json" "my job"
-before="$(snapshot "$target/factory/jobs")"
-run_install "$target"
-assert_status 0
-assert_equal "$before" "$(snapshot "$target/factory/jobs")" "expected factory/jobs to be unchanged"
+assert_content "$target/.gitignore" "node_modules/"
 
 begin_case "existing file with different content is a different Skip"
 write_file "$target/README.md" "my readme"
 run_install "$target"
 assert_status 0
 assert_content "$target/README.md" "my readme"
-assert_output_contains "4 added, 0 identical, 1 different"
+assert_output_contains "3 added, 0 identical, 1 different"
 assert_output_contains "  README.md"
 
 begin_case "existing file with identical content is an identical Skip"
@@ -214,7 +191,7 @@ write_file "$target/README.md" "template readme"
 run_install "$target"
 assert_status 0
 assert_content "$target/README.md" "template readme"
-assert_output_contains "4 added, 1 identical, 0 different"
+assert_output_contains "3 added, 1 identical, 0 different"
 assert_output_lacks "  README.md"
 
 begin_case "Target .claude keeps every file unchanged and gains new ones"
@@ -233,7 +210,7 @@ assert_content "$target/.claude/skills/factory/SKILL.md" "template skill"
 rm -rf "$target/.claude/skills"
 assert_equal "$before" "$(snapshot "$target/.claude")" \
   "expected .claude to differ from before only by the added skills directory"
-assert_output_contains "4 added, 0 identical, 1 different"
+assert_output_contains "3 added, 0 identical, 1 different"
 assert_output_contains "  .claude/agents/builder.md"
 
 begin_case "symlinked .claude in Target is a Conflict and nothing is copied"
@@ -269,7 +246,7 @@ run_install "$target"
 assert_status 0
 assert_content "$target/README.md/keep.txt" "keep me"
 assert_content "$target/factory/dashboard.html" "template dashboard"
-assert_output_contains "4 added, 0 identical, 1 different"
+assert_output_contains "3 added, 0 identical, 1 different"
 
 begin_case "symlink where the Template has a file is a Skip and stays a symlink"
 write_file "$target/NOTES.md" "my notes"
@@ -278,71 +255,7 @@ run_install "$target"
 assert_status 0
 assert_equal "NOTES.md" "$(readlink "$target/README.md")" "expected README.md to stay a symlink"
 assert_content "$target/NOTES.md" "my notes"
-assert_output_contains "4 added, 0 identical, 1 different"
-
-begin_case "missing .gitignore is created with the jobs rule"
-run_install "$target"
-assert_status 0
-assert_content "$target/.gitignore" "$GITIGNORE_COMMENT
-/factory/jobs/"
-assert_output_contains ".gitignore: created"
-
-begin_case "existing .gitignore gains the jobs rule and keeps its lines"
-write_file "$target/.gitignore" "node_modules/
-dist"
-run_install "$target"
-assert_status 0
-assert_content "$target/.gitignore" "node_modules/
-dist
-
-$GITIGNORE_COMMENT
-/factory/jobs/"
-assert_output_contains ".gitignore: updated"
-
-begin_case ".gitignore without a final newline keeps its last rule intact"
-printf 'node_modules/\ndist' > "$target/.gitignore"
-run_install "$target"
-assert_status 0
-assert_content "$target/.gitignore" "node_modules/
-dist
-
-$GITIGNORE_COMMENT
-/factory/jobs/"
-
-begin_case "empty .gitignore gains only the jobs rule"
-: > "$target/.gitignore"
-run_install "$target"
-assert_status 0
-assert_content "$target/.gitignore" "$GITIGNORE_COMMENT
-/factory/jobs/"
-
-for existing_rule in "/factory/jobs/" "/factory/jobs" "factory/jobs/" "factory/jobs"; do
-  begin_case ".gitignore that already has '$existing_rule' is left alone"
-  write_file "$target/.gitignore" "node_modules/
-$existing_rule
-dist"
-  before="$(cksum < "$target/.gitignore")"
-  run_install "$target"
-  assert_status 0
-  assert_equal "$before" "$(cksum < "$target/.gitignore")" "expected .gitignore to be unchanged"
-  assert_output_contains ".gitignore: already ignores"
-done
-
-begin_case "symlinked .gitignore is not written through"
-write_file "$case_dir/shared-gitignore" "node_modules/"
-ln -s ../shared-gitignore "$target/.gitignore"
-run_install "$target"
-assert_status 0
-assert_content "$case_dir/shared-gitignore" "node_modules/"
-assert_equal "../shared-gitignore" "$(readlink "$target/.gitignore")" "expected .gitignore to stay a symlink"
-assert_output_contains ".gitignore: skipped"
-assert_output_contains "/factory/jobs/"
-
-begin_case "second run does not repeat the jobs rule"
-run_install "$target"
-run_install "$target"
-assert_status 0
-assert_equal "1" "$(grep -c -x '/factory/jobs/' "$target/.gitignore")" "expected the jobs rule exactly once"
+assert_output_contains "3 added, 0 identical, 1 different"
 
 begin_case "missing Target aborts and is not created"
 run_install "$case_dir/does-not-exist"
@@ -398,7 +311,7 @@ run_install "$target"
 before="$(snapshot "$target")"
 run_install "$target"
 assert_status 0
-assert_output_contains "0 added, 5 identical, 0 different"
+assert_output_contains "0 added, 4 identical, 0 different"
 assert_equal "$before" "$(snapshot "$target")" "expected the second run to change nothing"
 
 begin_case "Target outside a git repository gets a warning but is copied"
@@ -411,6 +324,24 @@ git init -q "$target"
 run_install "$target"
 assert_status 0
 assert_output_lacks "not a git repository"
+
+begin_case "gh on the PATH gets no warning"
+run_install "$target"
+assert_status 0
+assert_output_contains "gh: found"
+assert_output_lacks "https://cli.github.com"
+
+begin_case "missing gh prints a warning after the report and continues"
+rm "$case_dir/bin/gh"
+run_install "$target"
+assert_status 0
+assert_output_contains "gh: not installed"
+assert_output_contains "https://cli.github.com"
+assert_content "$target/factory/dashboard.html" "template dashboard"
+case "$output" in
+  *"Done: 4 added"*"gh: not installed"*) ;;
+  *) fail "expected the copy report before the gh check. Output: $output" ;;
+esac
 
 begin_case "agent-browser already on the PATH is not installed again"
 fake_command brew 0
@@ -427,7 +358,7 @@ assert_equal "brew install agent-browser
 agent-browser install" "$(cat "$call_log")" "expected brew install, then agent-browser install"
 assert_output_contains "agent-browser: installed"
 case "$output" in
-  *"Done: 5 added"*"agent-browser: installing"*) ;;
+  *"Done: 4 added"*"agent-browser: installing"*) ;;
   *) fail "expected the copy report before the agent-browser step. Output: $output" ;;
 esac
 
@@ -446,8 +377,6 @@ assert_failed
 assert_equal "brew install agent-browser" "$(cat "$call_log")" "expected only the brew install call"
 assert_output_contains "https://github.com/vercel-labs/agent-browser"
 assert_content "$target/factory/dashboard.html" "template dashboard"
-assert_content "$target/.gitignore" "$GITIGNORE_COMMENT
-/factory/jobs/"
 
 begin_case "failed agent-browser install exits non-zero but keeps the copy"
 agent_browser_missing_with_brew 1
@@ -467,14 +396,10 @@ begin_case "the real Template is used when no override is set"
 template=""
 run_install "$target"
 assert_status 0
-assert_equal "" "$(diff -r -x .DS_Store -x .gitignore -x jobs -x backlog.md "$REAL_TEMPLATE" "$target" 2>&1)" \
-  "expected the Target to match the real Template apart from jobs and backlog.md"
-assert_equal "" "$(ls -A "$target/factory/jobs" 2>&1)" "expected an empty factory/jobs directory"
-assert_equal "0" "$(grep -c -E '^- \[[xX]\]' "$target/factory/backlog.md")" \
-  "expected no checked items in backlog.md"
-assert_equal "$(grep -c '' "$REAL_TEMPLATE/factory/backlog.md")" \
-  "$(($(grep -c '' "$target/factory/backlog.md") + $(grep -c -E '^- \[[xX]\]' "$REAL_TEMPLATE/factory/backlog.md")))" \
-  "expected backlog.md to lose only its checked items"
+assert_equal "" "$(diff -r -x .DS_Store "$REAL_TEMPLATE" "$target" 2>&1)" \
+  "expected the Target to match the real Template"
+assert_missing "$target/factory/jobs"
+assert_missing "$target/factory/backlog.md"
 
 # --- summary ----------------------------------------------------------------
 
