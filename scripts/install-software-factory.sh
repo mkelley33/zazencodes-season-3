@@ -2,7 +2,7 @@
 #
 # Additive copy of the software factory Template into a Target directory.
 #
-# Run: bash scripts/copy-software-factory.sh
+# Run: bash scripts/install-software-factory.sh
 #
 # Prompts for the Target path, then adds every Template file the Target does
 # not have yet. Nothing that already exists in the Target is changed or
