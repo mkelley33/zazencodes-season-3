@@ -7,9 +7,10 @@ The dashboard is a static page that needs to read the repository's issues
 and their comments. The browser cannot call GitHub with the user's gh login,
 so this server does it: every GET /api/<path> becomes
 `gh api repos/<owner>/<name>/<path>` and its status, body and caching headers
-are passed back unchanged. Only GET is served, only a strict character set is
-accepted in the path and query, and gh runs with an argument list, never a
-shell, so the page cannot be used to run anything else.
+are passed back unchanged. Only GET is served, only the issue list and issue
+comments can be read, only a strict character set is accepted in the query,
+requests must carry a local Host header, and gh runs with an argument list,
+never a shell, so the page cannot be used to read or run anything else.
 
 Python 3 standard library only.
 """
@@ -30,17 +31,29 @@ GH_TIMEOUT_SECONDS = 30
 GH_URL = "https://cli.github.com"
 
 REPO_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+")
-API_PATH_PATTERN = re.compile(r"[A-Za-z0-9_.\-/]+")
+# The dashboard reads only the issue list and each issue's comments. Nothing
+# else in the repository API is reachable through this server.
+API_PATH_PATTERN = re.compile(r"issues(/\d+/comments)?")
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
 QUERY_PATTERN = re.compile(r"[A-Za-z0-9_.,=&%+:\-]*")
 STATUS_LINE_PATTERN = re.compile(r"^HTTP/\S+\s+(\d{3})")
 FORWARDED_HEADERS = ("ETag", "X-RateLimit-Remaining", "X-RateLimit-Reset")
+
+
+def run_gh(argv):
+    """Runs gh with an argument list. UTF-8 whatever the locale, so a comment
+    with non-ASCII text never raises out of a request."""
+    return subprocess.run(
+        argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=GH_TIMEOUT_SECONDS,
+    )
 
 
 def detect_repo():
     """Asks gh which repository the current directory belongs to."""
     argv = ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]
     try:
-        run = subprocess.run(argv, capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS)
+        run = run_gh(argv)
     except FileNotFoundError:
         sys.exit(
             f"gh was not found on the PATH. Install it from {GH_URL} and run "
@@ -80,6 +93,11 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(FACTORY_DIR), **kwargs)
 
     def do_GET(self):
+        # A page on another origin whose hostname is rebound to 127.0.0.1
+        # would otherwise read the repository with the user's gh login.
+        host = self.headers.get("Host", "").rsplit(":", 1)[0]
+        if host not in LOCAL_HOSTS:
+            return self.send_json(HTTPStatus.FORBIDDEN, {"error": "unexpected Host header"})
         url = urlsplit(self.path)
         if url.path == "/":
             self.path = "/dashboard.html"
@@ -91,7 +109,7 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def proxy(self, api_path, query):
-        if not API_PATH_PATTERN.fullmatch(api_path) or ".." in api_path.split("/"):
+        if not API_PATH_PATTERN.fullmatch(api_path):
             return self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid api path"})
         if not QUERY_PATTERN.fullmatch(query):
             return self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid query string"})
@@ -105,7 +123,7 @@ class Handler(SimpleHTTPRequestHandler):
             argv += ["-H", f"If-None-Match: {etag}"]
 
         try:
-            run = subprocess.run(argv, capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS)
+            run = run_gh(argv)
         except FileNotFoundError:
             return self.send_json(
                 HTTPStatus.SERVICE_UNAVAILABLE,
