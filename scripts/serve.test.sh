@@ -105,6 +105,7 @@ stop_server() {
 request() {
   local path="$1"
   shift
+  : > "$case_dir/body" # curl leaves no body file on an empty 304
   curl -s --path-as-is -D "$case_dir/headers" -o "$case_dir/body" \
     -w '%{http_code}' "http://127.0.0.1:$port$path" "$@" > "$case_dir/status"
   status="$(cat "$case_dir/status")"
