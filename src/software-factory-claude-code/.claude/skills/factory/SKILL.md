@@ -18,8 +18,12 @@ feature → spec-writer → builder → [security, ux, ui, code] → WAIT FOR AL
                            ▲                                      │
                            └──── any CHANGES: resume builder ◄────┤
                                                                   ▼ all PASS
-                                     merge to main ◄─ APPROVE ─ approver ─ ESCALATE → needs-human
+                                     open PR to main ◄─ APPROVE ─ approver ─ ESCALATE → needs-human
 ```
+
+The factory never merges. The only way a job reaches `main` is a pull request
+that a human merges on GitHub. A PR is opened only when the approver says
+`APPROVE`, or when a human says so with `/factory approve <job-id>`.
 
 | Step         | Agent (`subagent_type`) | Posts                                        |
 | ------------ | ----------------------- | -------------------------------------------- |
@@ -47,7 +51,8 @@ started or was handed.
 
 - Your session stays in the main checkout, apart from the worktree setup in
   step 2. Agents work in the job's worktree. The main checkout is the user's,
-  and it may be dirty or on another branch. Only **Merge** touches it.
+  and it may be dirty or on another branch. The factory never commits to it,
+  merges into it, or checks out another branch in it.
 - The worktree lives under `.claude/worktrees/` in the main checkout, and the
   `EnterWorktree` tool creates it. That way the repo's `.worktreeinclude` files
   (env files, for example) are copied in for you, and the repo's file
@@ -74,9 +79,11 @@ comes from `gh repo view --json nameWithOwner -q .nameWithOwner`, run once in
 - `factory` marks an issue as a job. An open `factory` issue with no stage
   label is queued and waits for `/factory next`.
 - Exactly one stage label says where a job is: `factory:spec`,
-  `factory:build`, `factory:review`, `factory:approve` or
-  `factory:needs-human`. Worktree setup counts as `factory:spec`. A closed
-  issue is a merged job and carries no stage label.
+  `factory:build`, `factory:review`, `factory:approve`, `factory:pr` or
+  `factory:needs-human`. Worktree setup counts as `factory:spec`. `factory:pr`
+  means a pull request is open and waits for a human to merge it. A closed
+  issue is a merged job: the PR body says `Closes #<n>`, so GitHub closes the
+  issue when the human merges the PR.
 - To set a stage, add the new label and remove the old one in one call:
   `gh issue edit <n> --add-label factory:build --remove-label factory:spec`.
 
@@ -120,6 +127,7 @@ heading, and the latest comment with a heading wins.
 | review          | `## round-<N> review-<kind>`    | `VERDICT: PASS\|CHANGES` |
 | rework          | `## rework-<k>`                 | note verbatim            |
 | decision        | `## decision round-<N>`         | `APPROVE\|ESCALATE`      |
+| pr              | `## pr`                         | the pull request URL     |
 
 Read comments with
 `gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
@@ -142,8 +150,9 @@ gets `5100 + 10n`, `reviewer-ux` gets `5101 + 10n` and `reviewer-ui` gets
 
 1. **Create the job.** Make sure the labels exist, so a fresh repo works on
    its first run: `gh label create factory --force --color 0E8A16 --description "Software factory job"`,
-   then the same for the five stage labels (`factory:spec`, `factory:build`,
-   `factory:review`, `factory:approve`, `factory:needs-human`). Open the issue:
+   then the same for the six stage labels (`factory:spec`, `factory:build`,
+   `factory:review`, `factory:approve`, `factory:pr`, `factory:needs-human`).
+   Open the issue:
    `gh issue create --title "<feature, verbatim>" --label factory --body "Opened by /factory."`
    prints its URL; the number at the end is `n`. Build the job id
    `<n>-<slug>`, where the slug is the feature lowercased, every run of
@@ -222,35 +231,37 @@ Set the stage to `factory:approve`. Spawn `approver` with the prompt
 `<paths> Final round: N.` When it finishes, read the second line of the
 `## decision round-N` comment:
 
-- `APPROVE`: go to **Merge**.
+- `APPROVE`: go to **Pull request**.
 - `ESCALATE`: go to **Needs human**.
 - No comment for round N: stop and tell the user. Never act on a decision
   from an earlier round.
 
-### Merge
+### Pull request
 
-The merge happens in the main checkout, so it must be clean and on `main`:
-`git status --porcelain -- . ':!.claude/worktrees'` prints nothing and
-`git branch --show-current` prints `main`. `.claude/worktrees/` is exempt
-because the job worktrees live there and a repo need not ignore it. If not,
-set the stage to `factory:needs-human` and tell the user the
-job is approved but the main checkout is busy; they run
-`/factory approve <job-id>` once it is clean. Otherwise:
+Never merge the job branch yourself, with `git merge`, `gh pr merge` or any
+other command, and never commit to `main`. A human merges on GitHub. Open the
+PR from the worktree, so the main checkout stays untouched:
 
 ```bash
-git merge --no-ff factory/<job-id> -m "Merge factory/<job-id>"
-git worktree remove <worktree>
-git branch -d factory/<job-id>
-gh issue edit <n> --remove-label factory:<current stage>
-gh issue close <n> --comment "Merged factory/<job-id> into main."
+cd <worktree>
+git push -u origin factory/<job-id>
+gh pr create --base main --head factory/<job-id> \
+  --title "<feature, verbatim>" --body-file <file>
+gh issue edit <n> --add-label factory:pr --remove-label factory:<current stage>
 ```
 
-If the merge fails, run `git merge --abort` (when a merge is in progress), set
-the stage to `factory:needs-human` and tell the user why. If
-`git worktree remove` refuses because the worktree is locked, run
-`git worktree unlock <worktree>` and remove it again. If removing the worktree
-still fails, the job is still merged: tell the user what `git worktree remove`
-printed. Never push.
+The body file lives in your scratchpad. It starts with `Closes #<n>.`, a blank
+line, then the `## Why` section of the latest `## decision round-N` comment,
+then a line naming the final round and that all four reviews passed. Post the
+PR URL on the issue as a comment: `## pr` on line 1, the URL on line 2.
+
+The branch and its worktree stay until the human merges the PR, so a review
+comment on GitHub can be answered with `/factory rework <job-id> <note>`.
+After the PR is merged, the human runs
+`git worktree remove <worktree> && git branch -d factory/<job-id>`.
+
+If the push or `gh pr create` fails, set the stage to `factory:needs-human`
+and tell the user why. Never force-push.
 
 ### Needs human
 
@@ -275,7 +286,9 @@ reason from the build comment).
 ## /factory approve <job-id>
 
 `<job-id>` may be the full job id or just the issue number. The job must have
-the `factory:needs-human` label. Run **Merge** with that job.
+the `factory:needs-human` label. The human has approved the job: run
+**Pull request** with that job. This is the only path to a PR besides the
+approver's own `APPROVE`.
 
 ## /factory rework <job-id> <note>
 
@@ -293,4 +306,5 @@ The job must have the `factory:needs-human` label.
 
 Keep the user posted with one short line per transition, for example
 `42-rate-limiting: round 2, security CHANGES, ux/ui/code PASS → resuming builder`.
-When the job ends, say whether it merged or needs a human, and why.
+When the job ends, say whether a PR is open (give its URL) or the job needs a
+human, and why. Never report a job as merged: only a human merges.

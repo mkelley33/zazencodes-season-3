@@ -34,7 +34,7 @@ _Avoid_: Collision, clobber
 ### Factory
 
 **Job**:
-One feature run through the factory loop, from spec to merge or to a human. A Job is recorded as one Issue.
+One feature run through the factory loop, from spec to an open pull request or to a human. A Job is recorded as one Issue. The factory never merges a Job; a human merges its pull request on GitHub.
 _Avoid_: Task, run
 
 **Issue**:

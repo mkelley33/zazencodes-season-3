@@ -2,15 +2,16 @@
 
 A small, visual software factory built from one skill, seven subagents and
 GitHub issues. You type `/factory <feature>` and agents write a spec, build it
-on its own branch, review it from four angles, and either merge it to `main` or
-hand it to you.
+on its own branch, review it from four angles, and either open a pull request
+to `main` or hand it to you. The factory never merges: you merge the PR on
+GitHub.
 
 ```
 feature → spec-writer → builder → [security, ux, ui, code] → WAIT FOR ALL
                            ▲                                      │
                            └──── any CHANGES: resume builder ◄────┤
                                                                   ▼ all PASS
-                                     merge to main ◄─ APPROVE ─ approver ─ ESCALATE → needs-human
+                                     open PR to main ◄─ APPROVE ─ approver ─ ESCALATE → needs-human
 ```
 
 This folder is laid out like a repo root, so you can copy it straight into
@@ -38,7 +39,9 @@ BUILD_PROMPT.md                  the prompt that built the original factory
 - Every job is one GitHub issue in your repo, labeled `factory`. The issue is
   the queue entry, the state and the record: a `factory:<stage>` label says
   where the job is, a state comment holds the round and verdicts, and every
-  agent posts its artifact as a comment. A closed issue is a merged job.
+  agent posts its artifact as a comment. `factory:pr` means a pull request is
+  open and waits for you. A closed issue is a merged job: the PR says
+  `Closes #<n>`, so merging it closes the issue.
 - The session that runs `/factory` becomes the orchestrator. It spawns every
   agent and is the only writer of the job's label and state comment.
 - Agents get their context from the issue and the repo, not the conversation,
@@ -60,7 +63,7 @@ BUILD_PROMPT.md                  the prompt that built the original factory
 ```
 /factory <feature>               open an issue for the feature and run it through the loop
 /factory next                    claim the oldest open `factory` issue nobody has started
-/factory approve <job-id>        merge a needs-human job into main
+/factory approve <job-id>        open a pull request for a needs-human job
 /factory rework <job-id> <note>  send a needs-human job back to the builder with feedback
 ```
 
@@ -105,4 +108,5 @@ If you are copying this folder as a template, ignore it.
 
 The factory has grown since then: it now runs each job in its own git worktree
 and records every job on its own GitHub issue, instead of the single
-`board.json` the prompt describes, so several jobs can run at once.
+`board.json` the prompt describes, so several jobs can run at once. It also
+opens a pull request instead of merging to `main`, so a human always merges.

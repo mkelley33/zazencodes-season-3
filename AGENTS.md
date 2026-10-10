@@ -8,6 +8,11 @@
 - Keep the `README.md` video index in reverse chronological order so the newest published videos appear first.
 - When asked to "Update the README", assume existing README entries are still correct. Only check new `src/` folders that are not already linked in `README.md`.
 
+## Branches and Merging
+
+- Never merge into `main` locally and never commit to `main`. Every change, including a finished factory job, lands through a pull request that a human merges on GitHub.
+- The factory opens a pull request only when its approver says `APPROVE` or a human says `/factory approve <job-id>`. Lesson from 2026-10-10: a factory job was merged into local `main` without a PR, which skipped human review.
+
 ## Repo Shape
 
 - `README.md`: public video index for Season 3.

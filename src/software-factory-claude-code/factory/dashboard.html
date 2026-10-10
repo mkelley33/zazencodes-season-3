@@ -273,6 +273,7 @@ const STAGES = [
   { key: 'build', label: 'Build', who: 'builder · opus' },
   { key: 'review', label: 'Review', who: 'sec · ux · ui · code' },
   { key: 'approve', label: 'Approve', who: 'approver · opus' },
+  { key: 'pr', label: 'PR open', who: 'human merges' },
   { key: 'merged', label: 'Merged', who: 'main', cls: 'merged-col' },
   { key: 'needs-human', label: 'Needs human', who: 'approve · rework', cls: 'human' },
 ]
@@ -441,7 +442,7 @@ function chips(n, verdicts, waiting) {
 
 function card(job, past) {
   const live = LIVE.has(job.stage) && !job.queued
-  const human = job.stage === 'needs-human'
+  const human = job.stage === 'needs-human' || job.stage === 'pr'
   const rows = past.map((v, i) => chips(i + 1, v, false))
   if (job.round > 0) rows.push(chips(job.round, job.reviews, job.stage === 'review'))
   const [num, ...slug] = job.id.split('-')
