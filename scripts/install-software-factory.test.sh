@@ -34,6 +34,8 @@ write_file() {
   printf '%s\n' "$2" > "$1"
 }
 
+GITIGNORE_COMMENT="# Software factory job folders are runtime state"
+
 EXPECTED_BACKLOG="# Backlog
 
 - [ ] Open item"
@@ -245,6 +247,70 @@ assert_equal "NOTES.md" "$(readlink "$target/README.md")" "expected README.md to
 assert_content "$target/NOTES.md" "my notes"
 assert_output_contains "4 added, 0 identical, 1 different"
 
+begin_case "missing .gitignore is created with the jobs rule"
+run_install "$target"
+assert_status 0
+assert_content "$target/.gitignore" "$GITIGNORE_COMMENT
+/factory/jobs/"
+assert_output_contains ".gitignore: created"
+
+begin_case "existing .gitignore gains the jobs rule and keeps its lines"
+write_file "$target/.gitignore" "node_modules/
+dist"
+run_install "$target"
+assert_status 0
+assert_content "$target/.gitignore" "node_modules/
+dist
+
+$GITIGNORE_COMMENT
+/factory/jobs/"
+assert_output_contains ".gitignore: updated"
+
+begin_case ".gitignore without a final newline keeps its last rule intact"
+printf 'node_modules/\ndist' > "$target/.gitignore"
+run_install "$target"
+assert_status 0
+assert_content "$target/.gitignore" "node_modules/
+dist
+
+$GITIGNORE_COMMENT
+/factory/jobs/"
+
+begin_case "empty .gitignore gains only the jobs rule"
+: > "$target/.gitignore"
+run_install "$target"
+assert_status 0
+assert_content "$target/.gitignore" "$GITIGNORE_COMMENT
+/factory/jobs/"
+
+for existing_rule in "/factory/jobs/" "/factory/jobs" "factory/jobs/" "factory/jobs"; do
+  begin_case ".gitignore that already has '$existing_rule' is left alone"
+  write_file "$target/.gitignore" "node_modules/
+$existing_rule
+dist"
+  before="$(cksum < "$target/.gitignore")"
+  run_install "$target"
+  assert_status 0
+  assert_equal "$before" "$(cksum < "$target/.gitignore")" "expected .gitignore to be unchanged"
+  assert_output_contains ".gitignore: already ignores"
+done
+
+begin_case "symlinked .gitignore is not written through"
+write_file "$case_dir/shared-gitignore" "node_modules/"
+ln -s ../shared-gitignore "$target/.gitignore"
+run_install "$target"
+assert_status 0
+assert_content "$case_dir/shared-gitignore" "node_modules/"
+assert_equal "../shared-gitignore" "$(readlink "$target/.gitignore")" "expected .gitignore to stay a symlink"
+assert_output_contains ".gitignore: skipped"
+assert_output_contains "/factory/jobs/"
+
+begin_case "second run does not repeat the jobs rule"
+run_install "$target"
+run_install "$target"
+assert_status 0
+assert_equal "1" "$(grep -c -x '/factory/jobs/' "$target/.gitignore")" "expected the jobs rule exactly once"
+
 begin_case "missing Target aborts and is not created"
 run_install "$case_dir/does-not-exist"
 assert_failed
@@ -317,7 +383,7 @@ begin_case "the real Template is used when no override is set"
 output="$(printf '%s\n' "$target" | bash "$SCRIPT" 2>&1)"
 status=$?
 assert_status 0
-assert_equal "" "$(diff -r -x .DS_Store -x jobs -x backlog.md "$REAL_TEMPLATE" "$target" 2>&1)" \
+assert_equal "" "$(diff -r -x .DS_Store -x .gitignore -x jobs -x backlog.md "$REAL_TEMPLATE" "$target" 2>&1)" \
   "expected the Target to match the real Template apart from jobs and backlog.md"
 assert_equal "" "$(ls -A "$target/factory/jobs" 2>&1)" "expected an empty factory/jobs directory"
 assert_equal "0" "$(grep -c -E '^- \[[xX]\]' "$target/factory/backlog.md")" \
