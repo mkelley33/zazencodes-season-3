@@ -5,18 +5,17 @@
 # Run: bash scripts/install-software-factory.sh
 #
 # Prompts for the Target path, then makes an Additive copy: every Template
-# file the Target does not have yet is added. Example jobs are never copied,
-# and factory/backlog.md is written without its checked items. Nothing that
-# already exists in the Target is changed or removed, with one exception: the
-# rule that ignores factory/jobs/ is appended to the Target .gitignore.
+# file the Target does not have yet is added. Nothing that already exists in
+# the Target is changed or removed.
 #
 #   - Skip:     the Target already has an entry at a Template file's path.
 #               The entry is left alone and reported as identical or different.
 #   - Conflict: the Target has a symlink or a file where the Template has a
 #               directory. Every Conflict is listed and nothing is copied.
 #
-# The last step installs the agent-browser CLI with Homebrew when it is not on
-# the PATH yet.
+# The last steps check for the gh CLI, which the factory uses to keep each
+# Job on a GitHub Issue, and install the agent-browser CLI with Homebrew when
+# it is not on the PATH yet.
 #
 # See CONTEXT.md for the terms. Written for bash 3.2 (the macOS default).
 #
@@ -28,11 +27,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR="${SOFTWARE_FACTORY_TEMPLATE_DIR:-$SCRIPT_DIR/../src/software-factory-claude-code}"
 
-EXAMPLE_JOBS_DIR="factory/jobs"
-BACKLOG_PATH="factory/backlog.md"
-GITIGNORE_RULE="/$EXAMPLE_JOBS_DIR/"
-GITIGNORE_COMMENT="# Software factory job folders are runtime state"
 AGENT_BROWSER_URL="https://github.com/vercel-labs/agent-browser#installation"
+GH_URL="https://cli.github.com"
 
 die() {
   printf '%s\n' "$1" >&2
@@ -40,59 +36,25 @@ die() {
 }
 
 # Lists the Template entries to install as paths relative to the Template
-# root. Example jobs are left out; the directory that holds them is kept.
-# $1 is a find(1) type test: "-type d" for directories, "! -type d" for files.
+# root. $1 is a find(1) type test: "-type d" for directories, "! -type d" for
+# files.
 list_template_entries() {
   # shellcheck disable=SC2086 # $1 is a find expression that must split
   (cd "$template" && find . -mindepth 1 $1 ! -name .DS_Store | sort) \
-    | sed -e 's|^\./||' -e "\|^$EXAMPLE_JOBS_DIR/|d"
+    | sed -e 's|^\./||'
 }
 
-# Prints the Template backlog without its checked items.
-backlog_without_checked_items() {
-  sed -e '/^[[:space:]]*- \[[xX]\]/d' "$template/$BACKLOG_PATH"
-}
-
-# Succeeds when the Target entry has the content the install would write.
-has_installed_content() {
-  if [ "$1" = "$BACKLOG_PATH" ]; then
-    backlog_without_checked_items | cmp -s - "$target/$1"
-  else
-    cmp -s "$template/$1" "$target/$1"
-  fi
-}
-
-# Makes the Target .gitignore ignore job folders, which are runtime state.
-# Only ever appends: every existing line stays as it is. Sets gitignore_status
-# for the report.
-ensure_gitignore_rule() {
-  local gitignore="$target/.gitignore"
-
-  if [ -L "$gitignore" ] || { [ -e "$gitignore" ] && [ ! -f "$gitignore" ]; }; then
-    gitignore_status="skipped, it is not a regular file. Add this line by hand: $GITIGNORE_RULE"
-    return
+# Warns when the gh CLI is missing. The factory needs it to open, read and
+# close the GitHub Issue that records each Job. Never fails the install.
+check_gh() {
+  if command -v gh > /dev/null 2>&1; then
+    printf 'gh: found.\n'
+    return 0
   fi
 
-  if [ ! -e "$gitignore" ]; then
-    printf '%s\n%s\n' "$GITIGNORE_COMMENT" "$GITIGNORE_RULE" > "$gitignore"
-    gitignore_status="created with $GITIGNORE_RULE"
-    return
-  fi
-
-  if grep -q -E "^/?$EXAMPLE_JOBS_DIR/?[[:space:]]*\$" "$gitignore"; then
-    gitignore_status="already ignores $GITIGNORE_RULE"
-    return
-  fi
-
-  if [ -s "$gitignore" ]; then
-    # A last line without a newline would otherwise be joined with the rule.
-    if [ -n "$(tail -c 1 "$gitignore")" ]; then
-      printf '\n' >> "$gitignore"
-    fi
-    printf '\n' >> "$gitignore"
-  fi
-  printf '%s\n%s\n' "$GITIGNORE_COMMENT" "$GITIGNORE_RULE" >> "$gitignore"
-  gitignore_status="updated with $GITIGNORE_RULE"
+  printf 'gh: not installed. The factory needs it to track Jobs as GitHub Issues. Install it and run gh auth login: %s\n' \
+    "$GH_URL" >&2
+  return 0
 }
 
 # Installs the agent-browser CLI that the builder and the UI and UX reviewers
@@ -172,7 +134,6 @@ fi
 
 added=""
 different=""
-backlog_is_added=false
 added_count=0
 identical_count=0
 different_count=0
@@ -182,10 +143,7 @@ while IFS= read -r relative_path; do
   if [ ! -e "$target_entry" ] && [ ! -L "$target_entry" ]; then
     added="$added  $relative_path"$'\n'
     added_count=$((added_count + 1))
-    if [ "$relative_path" = "$BACKLOG_PATH" ]; then
-      backlog_is_added=true
-    fi
-  elif [ -f "$target_entry" ] && has_installed_content "$relative_path"; then
+  elif [ -f "$target_entry" ] && cmp -s "$template/$relative_path" "$target_entry"; then
     identical_count=$((identical_count + 1))
   else
     different="$different  $relative_path"$'\n'
@@ -197,18 +155,7 @@ done < <(list_template_entries "! -type d")
 
 # -rl, not -a: -a would rewrite permissions and timestamps on directories the
 # Target already has.
-rsync -rl --ignore-existing --exclude .DS_Store \
-  --exclude "/$EXAMPLE_JOBS_DIR/*" --exclude "/$BACKLOG_PATH" \
-  "$template/" "$target/"
-
-if [ "$backlog_is_added" = true ]; then
-  backlog_without_checked_items > "$target/$BACKLOG_PATH"
-fi
-
-# --- setup -------------------------------------------------------------------
-
-gitignore_status=""
-ensure_gitignore_rule
+rsync -rl --ignore-existing --exclude .DS_Store "$template/" "$target/"
 
 # --- report ------------------------------------------------------------------
 
@@ -225,13 +172,12 @@ if [ "$different_count" -gt 0 ]; then
     "$different_count" "$different"
 fi
 
-printf '\n.gitignore: %s\n' "$gitignore_status"
-
 printf '\nDone: %s added, %s identical, %s different.\n' \
   "$added_count" "$identical_count" "$different_count"
 
-# --- agent-browser -----------------------------------------------------------
+# --- tools -------------------------------------------------------------------
 
 # Last, so a failed download cannot hide the report above.
 printf '\n'
+check_gh
 install_agent_browser
