@@ -225,7 +225,7 @@ printf '1\n' > "$case_dir/exit"
 fake_gh_stderr="gh: Not Found (HTTP 404)"
 start_server
 fake_gh_stderr=""
-request "/api/issues/999"
+request "/api/issues/999/comments"
 assert_status 404
 assert_body_contains '"error"'
 assert_body_contains "Not Found"
@@ -256,6 +256,38 @@ start_server
 request "/api/issues?state=open;rm"
 assert_status 400
 assert_calls ""
+
+begin_case "paths outside issues and their comments are rejected before gh runs"
+start_server
+request "/api/contents/.env"
+assert_status 400
+request "/api/issues/42"
+assert_status 400
+request "/api/issues/42/comments/7"
+assert_status 400
+assert_calls ""
+
+begin_case "a Host header that is not the local server is refused"
+start_server
+request "/api/issues" -H "Host: evil.example:$port"
+assert_status 403
+request "/" -H "Host: evil.example:$port"
+assert_status 403
+assert_calls ""
+
+begin_case "localhost and 127.0.0.1 Host headers are accepted"
+start_server
+request "/api/issues" -H "Host: localhost:$port"
+assert_status 200
+request "/api/issues" -H "Host: 127.0.0.1:$port"
+assert_status 200
+
+begin_case "non-UTF-8 locale still decodes gh output"
+gh_answers 200 '[{"title":"→ ☐ “quotes”"}]'
+LC_ALL=C LANG=C PYTHONUTF8=0 PYTHONCOERCECLOCALE=0 start_server
+request "/api/issues"
+assert_status 200
+assert_body_contains "→ ☐"
 
 begin_case "empty api path is rejected"
 start_server
