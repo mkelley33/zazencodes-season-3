@@ -12,6 +12,8 @@
 
 - `README.md`: public video index for Season 3.
 - `src/<folder>`: one top-level folder per video project or companion resource.
+- `scripts/`: maintenance scripts, not video content. Never list it in `README.md`. Run the tests with `bash scripts/<name>.test.sh`.
+- `CONTEXT.md`: glossary for the terms the scripts use.
 - `/Users/alex/pro/zazencodes-content/videos`: local source of truth for published video metadata.
 
 ## README Update Workflow
