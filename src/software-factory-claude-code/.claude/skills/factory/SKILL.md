@@ -44,9 +44,13 @@ at once, one per Claude session. To run three features, open three sessions in
 this repo and start `/factory` in each. Your session orchestrates only the job it
 started or was handed.
 
-- Your session stays in the main checkout. Agents work in the job's worktree.
-  The main checkout is the user's, and it may be dirty or on another branch.
-  Only **Merge** touches it.
+- Your session stays in the main checkout, apart from the worktree setup in
+  step 2. Agents work in the job's worktree. The main checkout is the user's,
+  and it may be dirty or on another branch. Only **Merge** touches it.
+- The worktree lives under `.claude/worktrees/` in the main checkout, and the
+  `EnterWorktree` tool creates it. That way the repo's `.worktreeinclude` files
+  (env files, for example) are copied in for you, and the repo's file
+  permission rules, which only reach paths under the main checkout, cover it.
 - Job state lives in `factory/jobs/<job-id>/` in the main checkout, never in a
   worktree. Each job has its own `job.json`, so sessions never write the same
   file.
@@ -56,8 +60,8 @@ started or was handed.
 ## Files
 
 `<repo>` is the main checkout (`git rev-parse --show-toplevel` from your
-session) and `<name>` is its folder name. `factory/jobs/` is gitignored runtime
-state that never lands in a commit.
+session). `factory/jobs/` and `.claude/worktrees/` are gitignored runtime state
+that never lands in a commit.
 
 ```
 <repo>/factory/backlog.md                      queue for /factory next
@@ -67,7 +71,7 @@ state that never lands in a commit.
 <repo>/factory/jobs/<job-id>/rework-<k>.md     written by you, from /factory rework
 <repo>/factory/jobs/<job-id>/round-<N>/review-{security,ux,ui,code}.md
 <repo>/factory/jobs/<job-id>/decision.md
-<repo>/../<name>-factory/<job-id>/             the job's worktree, on factory/<job-id>
+<repo>/.claude/worktrees/factory-<job-id>/     the job's worktree, on factory/<job-id>
 ```
 
 ### job.json
@@ -75,7 +79,7 @@ state that never lands in a commit.
 ```json
 { "id": "003-rate-limiting", "feature": "Rate limit the signup form",
   "branch": "factory/003-rate-limiting",
-  "worktree": "/Users/you/code/my-app-factory/003-rate-limiting",
+  "worktree": "/Users/you/code/my-app/.claude/worktrees/factory-003-rate-limiting",
   "stage": "review", "round": 2,
   "reviews": { "security": "CHANGES", "ux": "PASS", "ui": "pending", "code": "PASS" } }
 ```
@@ -105,16 +109,29 @@ gets `5102 + 10n`, appended as ` Port: <port>.`
    none) and a 2–4 word kebab-case slug of the feature: `004-blog-reading-time`.
    Claim it with `mkdir factory/jobs/<job-id>` (no `-p`). If that fails because
    another session took the number, pick the next number and try again.
-   The worktree path is `$(cd .. && pwd)/$(basename "$PWD")-factory/<job-id>`,
-   run from `<repo>`. Write `job.json` with that `worktree`, `stage: "spec"`,
-   `round: 0` and all reviews `pending`.
-2. **Worktree.** Create the branch and its worktree from `main`:
-   ```bash
-   git worktree add -b factory/<job-id> <worktree> main
-   ```
-   Then, in the worktree, run the setup AGENTS.md gives for a fresh checkout
-   (installing dependencies, for example). If any of it fails, stop and tell
-   the user.
+   The worktree path is `<repo>/.claude/worktrees/factory-<job-id>`. Write
+   `job.json` with that `worktree`, `stage: "spec"`, `round: 0` and all reviews
+   `pending`. Write it now: while your session is inside the worktree in step 2
+   it cannot write to the main checkout.
+2. **Worktree.** Create the worktree and its branch from the remote `main`:
+   1. Run `git fetch origin main`, so the worktree starts from the latest
+      `main`.
+   2. Call `EnterWorktree` with `name: "factory-<job-id>"`. It creates
+      `<worktree>` on a branch named `worktree-factory-<job-id>`, copies in the
+      files `.worktreeinclude` lists, and moves your session into the worktree.
+   3. Rename the branch: `git branch -m factory/<job-id>`.
+   4. Run the setup AGENTS.md gives for a fresh checkout (installing
+      dependencies, for example). When AGENTS.md says the worktree needs
+      gitignored files such as env files, check by name that they arrived
+      (`ls -a`). Never read them.
+   5. Call `ExitWorktree` with `action: "keep"`. Your session is back in the
+      main checkout and the worktree stays.
+
+   If `EnterWorktree` or any of the setup fails, call `ExitWorktree` with
+   `action: "keep"` when you are inside the worktree, then stop and tell the
+   user. If files the worktree needs did not arrive, do the same and give the
+   user the exact copy command, with full source and destination paths. Do not
+   copy env files yourself.
 3. **Spec.** Spawn `spec-writer` with the prompt
    `<paths> Feature: <feature, verbatim>`.
    Wait for it to finish, then check that `spec.md` exists.
@@ -178,8 +195,10 @@ git branch -d factory/<job-id>
 ```
 
 Set `stage: "merged"`. If the merge fails, run `git merge --abort` (when a merge
-is in progress), set `stage: "needs-human"` and tell the user why. If removing the
-worktree fails, the job is still merged: tell the user what `git worktree remove`
+is in progress), set `stage: "needs-human"` and tell the user why. If
+`git worktree remove` refuses because the worktree is locked, run
+`git worktree unlock <worktree>` and remove it again. If removing the worktree
+still fails, the job is still merged: tell the user what `git worktree remove`
 printed. Never push.
 
 ### Needs human
