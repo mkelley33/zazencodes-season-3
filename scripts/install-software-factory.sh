@@ -3,15 +3,20 @@
 # Install of the software factory Template into a Target directory.
 #
 # Run: bash scripts/install-software-factory.sh
+#      bash scripts/install-software-factory.sh --force
 #
 # Prompts for the Target path, then makes an Additive copy: every Template
 # file the Target does not have yet is added. Nothing that already exists in
-# the Target is changed or removed.
+# the Target is changed or removed, apart from the Overwrites --force asks for.
 #
-#   - Skip:     the Target already has an entry at a Template file's path.
-#               The entry is left alone and reported as identical or different.
-#   - Conflict: the Target has a symlink or a file where the Template has a
-#               directory. Every Conflict is listed and nothing is copied.
+#   - Skip:      the Target already has an entry at a Template file's path.
+#                The entry is left alone and reported as identical or different.
+#   - Conflict:  the Target has a symlink or a file where the Template has a
+#                directory. Every Conflict is listed and nothing is copied.
+#   - Overwrite: with --force, a different Skip that is a regular file (not a
+#                symlink) gets the Template file's content. --force never
+#                touches directories, symlinks, identical files or entries the
+#                Template does not have, and a Conflict still aborts the run.
 #
 # The last steps check for the gh CLI, which the factory uses to keep each
 # Job on a GitHub Issue, and install the agent-browser CLI with Homebrew when
@@ -84,6 +89,13 @@ install_agent_browser() {
   return 1
 }
 
+force=false
+if [ "$#" -eq 1 ] && [ "$1" = "--force" ]; then
+  force=true
+elif [ "$#" -ne 0 ]; then
+  die "Usage: bash scripts/install-software-factory.sh [--force]"
+fi
+
 command -v rsync > /dev/null 2>&1 || die "rsync is required but was not found."
 [ -d "$TEMPLATE_DIR" ] || die "Template does not exist: $TEMPLATE_DIR"
 template="$(cd "$TEMPLATE_DIR" && pwd -P)"
@@ -134,9 +146,11 @@ fi
 
 added=""
 different=""
+overwritten=""
 added_count=0
 identical_count=0
 different_count=0
+overwritten_count=0
 
 while IFS= read -r relative_path; do
   target_entry="$target/$relative_path"
@@ -145,6 +159,9 @@ while IFS= read -r relative_path; do
     added_count=$((added_count + 1))
   elif [ -f "$target_entry" ] && cmp -s "$template/$relative_path" "$target_entry"; then
     identical_count=$((identical_count + 1))
+  elif [ "$force" = true ] && [ -f "$target_entry" ] && [ ! -L "$target_entry" ]; then
+    overwritten="$overwritten  $relative_path"$'\n'
+    overwritten_count=$((overwritten_count + 1))
   else
     different="$different  $relative_path"$'\n'
     different_count=$((different_count + 1))
@@ -157,6 +174,13 @@ done < <(list_template_entries "! -type d")
 # Target already has.
 rsync -rl --ignore-existing --exclude .DS_Store "$template/" "$target/"
 
+# Then each Overwrite. cp writes into the existing file, so its directory is
+# not touched and the file keeps its permissions.
+while IFS= read -r line; do
+  relative_path="${line#  }"
+  cp "$template/$relative_path" "$target/$relative_path"
+done < <(printf '%s' "$overwritten")
+
 # --- report ------------------------------------------------------------------
 
 printf '\nTemplate: %s\nTarget:   %s\n' "$template" "$target"
@@ -167,13 +191,22 @@ fi
 
 printf '\nSkipped, identical content: %s\n' "$identical_count"
 
+if [ "$overwritten_count" -gt 0 ]; then
+  printf '\nOverwritten (%s):\n%s' "$overwritten_count" "$overwritten"
+fi
+
 if [ "$different_count" -gt 0 ]; then
   printf '\nSkipped, different content (%s). Left unchanged, compare by hand:\n%s' \
     "$different_count" "$different"
 fi
 
-printf '\nDone: %s added, %s identical, %s different.\n' \
-  "$added_count" "$identical_count" "$different_count"
+if [ "$force" = true ]; then
+  printf '\nDone: %s added, %s identical, %s different, %s overwritten.\n' \
+    "$added_count" "$identical_count" "$different_count" "$overwritten_count"
+else
+  printf '\nDone: %s added, %s identical, %s different.\n' \
+    "$added_count" "$identical_count" "$different_count"
+fi
 
 # --- tools -------------------------------------------------------------------
 

@@ -81,11 +81,14 @@ agent_browser_missing_with_brew() {
   fake_command brew 0 "cp '$case_dir/agent-browser.fake' '$case_dir/bin/agent-browser'"
 }
 
-# Runs the script with $1 typed at the prompt. Uses the fixture Template, or
-# the real one when $template is empty.
+# Runs the script with $1 typed at the prompt and the remaining arguments
+# passed to it. Uses the fixture Template, or the real one when $template is
+# empty.
 run_install() {
-  output="$(cd "$run_cwd" && printf '%s\n' "$1" | env PATH="$case_dir/bin:/usr/bin:/bin" \
-    HOME="$run_home" SOFTWARE_FACTORY_TEMPLATE_DIR="$template" bash "$SCRIPT" 2>&1)"
+  typed="$1"
+  shift
+  output="$(cd "$run_cwd" && printf '%s\n' "$typed" | env PATH="$case_dir/bin:/usr/bin:/bin" \
+    HOME="$run_home" SOFTWARE_FACTORY_TEMPLATE_DIR="$template" bash "$SCRIPT" "$@" 2>&1)"
   status=$?
 }
 
@@ -400,6 +403,97 @@ assert_equal "" "$(diff -r -x .DS_Store "$REAL_TEMPLATE" "$target" 2>&1)" \
   "expected the Target to match the real Template"
 assert_missing "$target/factory/jobs"
 assert_missing "$target/factory/backlog.md"
+
+begin_case "no-flag output has no Overwrite count"
+write_file "$target/README.md" "my readme"
+run_install "$target"
+assert_status 0
+assert_content "$target/README.md" "my readme"
+assert_output_contains "Done: 3 added, 0 identical, 1 different."
+assert_output_lacks "overwritten"
+assert_output_lacks "Overwritten"
+
+begin_case "--force overwrites a file with different content"
+write_file "$target/README.md" "my readme"
+run_install "$target" --force
+assert_status 0
+assert_content "$target/README.md" "template readme"
+assert_output_contains "Overwritten (1):
+  README.md"
+assert_output_contains "Done: 3 added, 0 identical, 0 different, 1 overwritten."
+
+begin_case "--force overwrites a nested different file and keeps the rest"
+write_file "$target/.claude/settings.json" "my settings"
+write_file "$target/.claude/agents/builder.md" "my builder"
+write_file "$target/.claude/agents/mine.md" "my agent"
+run_install "$target" --force
+assert_status 0
+assert_content "$target/.claude/agents/builder.md" "template builder"
+assert_content "$target/.claude/settings.json" "my settings"
+assert_content "$target/.claude/agents/mine.md" "my agent"
+assert_output_contains "Overwritten (1):
+  .claude/agents/builder.md"
+assert_output_contains "Done: 3 added, 0 identical, 0 different, 1 overwritten."
+
+begin_case "--force does not report an identical file as overwritten"
+write_file "$target/README.md" "template readme"
+run_install "$target" --force
+assert_status 0
+assert_content "$target/README.md" "template readme"
+assert_output_contains "Done: 3 added, 1 identical, 0 different, 0 overwritten."
+assert_output_lacks "Overwritten ("
+
+begin_case "--force leaves a directory where the Template has a file"
+write_file "$target/README.md/keep.txt" "keep me"
+run_install "$target" --force
+assert_status 0
+assert_content "$target/README.md/keep.txt" "keep me"
+assert_output_contains "Skipped, different content (1). Left unchanged, compare by hand:
+  README.md"
+assert_output_contains "1 different, 0 overwritten"
+
+begin_case "--force leaves a symlink where the Template has a file"
+write_file "$target/NOTES.md" "my notes"
+ln -s NOTES.md "$target/README.md"
+run_install "$target" --force
+assert_status 0
+assert_equal "NOTES.md" "$(readlink "$target/README.md")" "expected README.md to stay a symlink"
+assert_content "$target/NOTES.md" "my notes"
+assert_output_contains "1 different, 0 overwritten"
+
+begin_case "--force still aborts on a Conflict and overwrites nothing"
+write_file "$target/factory" "i am a file"
+write_file "$target/README.md" "my readme"
+before="$(snapshot "$case_dir")"
+run_install "$target" --force
+assert_failed
+assert_output_contains "Conflict"
+assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
+
+begin_case "unknown flag is rejected before the prompt"
+before="$(snapshot "$case_dir")"
+run_install "$target" --frce
+assert_failed
+assert_output_contains "--force"
+assert_output_lacks "Target path:"
+assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
+
+begin_case "positional argument is rejected before the prompt"
+before="$(snapshot "$case_dir")"
+run_install "$target" extra
+assert_failed
+assert_output_contains "--force"
+assert_output_lacks "Target path:"
+assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
+
+begin_case "--force given twice is rejected before the prompt"
+write_file "$target/README.md" "my readme"
+before="$(snapshot "$case_dir")"
+run_install "$target" --force --force
+assert_failed
+assert_output_contains "--force"
+assert_output_lacks "Target path:"
+assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
 
 # --- summary ----------------------------------------------------------------
 
