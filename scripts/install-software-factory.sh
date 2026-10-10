@@ -7,7 +7,8 @@
 # Prompts for the Target path, then makes an Additive copy: every Template
 # file the Target does not have yet is added. Example jobs are never copied,
 # and factory/backlog.md is written without its checked items. Nothing that
-# already exists in the Target is changed or removed:
+# already exists in the Target is changed or removed, with one exception: the
+# rule that ignores factory/jobs/ is appended to the Target .gitignore.
 #
 #   - Skip:     the Target already has an entry at a Template file's path.
 #               The entry is left alone and reported as identical or different.
@@ -26,6 +27,8 @@ TEMPLATE_DIR="${SOFTWARE_FACTORY_TEMPLATE_DIR:-$SCRIPT_DIR/../src/software-facto
 
 EXAMPLE_JOBS_DIR="factory/jobs"
 BACKLOG_PATH="factory/backlog.md"
+GITIGNORE_RULE="/$EXAMPLE_JOBS_DIR/"
+GITIGNORE_COMMENT="# Software factory job folders are runtime state"
 
 die() {
   printf '%s\n' "$1" >&2
@@ -53,6 +56,39 @@ has_installed_content() {
   else
     cmp -s "$template/$1" "$target/$1"
   fi
+}
+
+# Makes the Target .gitignore ignore job folders, which are runtime state.
+# Only ever appends: every existing line stays as it is. Sets gitignore_status
+# for the report.
+ensure_gitignore_rule() {
+  local gitignore="$target/.gitignore"
+
+  if [ -L "$gitignore" ] || { [ -e "$gitignore" ] && [ ! -f "$gitignore" ]; }; then
+    gitignore_status="skipped, it is not a regular file. Add this line by hand: $GITIGNORE_RULE"
+    return
+  fi
+
+  if [ ! -e "$gitignore" ]; then
+    printf '%s\n%s\n' "$GITIGNORE_COMMENT" "$GITIGNORE_RULE" > "$gitignore"
+    gitignore_status="created with $GITIGNORE_RULE"
+    return
+  fi
+
+  if grep -q -E "^/?$EXAMPLE_JOBS_DIR/?[[:space:]]*\$" "$gitignore"; then
+    gitignore_status="already ignores $GITIGNORE_RULE"
+    return
+  fi
+
+  if [ -s "$gitignore" ]; then
+    # A last line without a newline would otherwise be joined with the rule.
+    if [ -n "$(tail -c 1 "$gitignore")" ]; then
+      printf '\n' >> "$gitignore"
+    fi
+    printf '\n' >> "$gitignore"
+  fi
+  printf '%s\n%s\n' "$GITIGNORE_COMMENT" "$GITIGNORE_RULE" >> "$gitignore"
+  gitignore_status="updated with $GITIGNORE_RULE"
 }
 
 command -v rsync > /dev/null 2>&1 || die "rsync is required but was not found."
@@ -138,6 +174,11 @@ if [ "$backlog_is_added" = true ]; then
   backlog_without_checked_items > "$target/$BACKLOG_PATH"
 fi
 
+# --- setup -------------------------------------------------------------------
+
+gitignore_status=""
+ensure_gitignore_rule
+
 # --- report ------------------------------------------------------------------
 
 printf '\nTemplate: %s\nTarget:   %s\n' "$template" "$target"
@@ -152,6 +193,8 @@ if [ "$different_count" -gt 0 ]; then
   printf '\nSkipped, different content (%s). Left unchanged, compare by hand:\n%s' \
     "$different_count" "$different"
 fi
+
+printf '\n.gitignore: %s\n' "$gitignore_status"
 
 printf '\nDone: %s added, %s identical, %s different.\n' \
   "$added_count" "$identical_count" "$different_count"
