@@ -6,9 +6,10 @@ description: Run the software factory. Use when the user types /factory <feature
 # Factory
 
 You are the orchestrator for one job. You run the loop below, spawn every agent,
-and are the only writer of your job's `job.json`. You never write code, specs,
-reviews or decisions yourself. Agents do the work and each writes one file; you
-move the job along and keep `job.json` current.
+and are the only writer of your job's state comment and stage label. You never
+write code, specs, reviews or decisions yourself. Agents do the work and each
+posts one comment on the job's GitHub issue; you move the job along and keep
+the issue current.
 
 ## The loop
 
@@ -20,15 +21,15 @@ feature → spec-writer → builder → [security, ux, ui, code] → WAIT FOR AL
                                      merge to main ◄─ APPROVE ─ approver ─ ESCALATE → needs-human
 ```
 
-| Step         | Agent (`subagent_type`) | Writes                                      |
-| ------------ | ----------------------- | ------------------------------------------- |
-| spec         | `spec-writer`           | `spec.md`                                   |
-| build        | `builder`               | `build.md` + commits on `factory/<job-id>`  |
-| review       | `reviewer-security`     | `round-N/review-security.md`                |
-|              | `reviewer-ux`           | `round-N/review-ux.md`                      |
-|              | `reviewer-ui`           | `round-N/review-ui.md`                      |
-|              | `reviewer-code`         | `round-N/review-code.md`                    |
-| approve      | `approver`              | `decision.md`                               |
+| Step         | Agent (`subagent_type`) | Posts                                        |
+| ------------ | ----------------------- | -------------------------------------------- |
+| spec         | `spec-writer`           | `## spec`                                    |
+| build        | `builder`               | `## build round-<N>` + commits on the branch |
+| review       | `reviewer-security`     | `## round-<N> review-security`               |
+|              | `reviewer-ux`           | `## round-<N> review-ux`                     |
+|              | `reviewer-ui`           | `## round-<N> review-ui`                     |
+|              | `reviewer-code`         | `## round-<N> review-code`                   |
+| approve      | `approver`              | `## decision`                                |
 
 `MAX_RESUMES = 2`: after round 1 the builder can be resumed at most twice, so a
 run has at most 3 review rounds. To change the factory, edit this file and the
@@ -51,68 +52,103 @@ started or was handed.
   `EnterWorktree` tool creates it. That way the repo's `.worktreeinclude` files
   (env files, for example) are copied in for you, and the repo's file
   permission rules, which only reach paths under the main checkout, cover it.
-- Job state lives in `factory/jobs/<job-id>/` in the main checkout, never in a
-  worktree. Each job has its own `job.json`, so sessions never write the same
-  file.
+- Job state lives on the job's GitHub issue, never in a file. Each job has its
+  own issue, so sessions never write the same state.
 - Each job gets its own dev server ports and agent-browser sessions (see
   **Prompts**), so reviewers of different jobs never see each other's pages.
 
-## Files
+## The issue
 
-`<repo>` is the main checkout (`git rev-parse --show-toplevel` from your
-session). `factory/jobs/` and `.claude/worktrees/` are gitignored runtime state
-that never lands in a commit.
+One GitHub issue in the repository's own GitHub repo is the whole record of a
+job: its queue entry, its state and every artifact. `<repo>` below is the main
+checkout (`git rev-parse --show-toplevel` from your session). `<owner>/<name>`
+comes from `gh repo view --json nameWithOwner -q .nameWithOwner`, run once in
+`<repo>`.
 
 ```
-<repo>/factory/backlog.md                      queue for /factory next
-<repo>/factory/jobs/<job-id>/job.json          the job's state (you write it, the dashboard reads it)
-<repo>/factory/jobs/<job-id>/spec.md
-<repo>/factory/jobs/<job-id>/build.md
-<repo>/factory/jobs/<job-id>/rework-<k>.md     written by you, from /factory rework
-<repo>/factory/jobs/<job-id>/round-<N>/review-{security,ux,ui,code}.md
-<repo>/factory/jobs/<job-id>/decision.md
 <repo>/.claude/worktrees/factory-<job-id>/     the job's worktree, on factory/<job-id>
 ```
 
-### job.json
+### Labels
+
+- `factory` marks an issue as a job. An open `factory` issue with no stage
+  label is queued and waits for `/factory next`.
+- Exactly one stage label says where a job is: `factory:spec`,
+  `factory:build`, `factory:review`, `factory:approve` or
+  `factory:needs-human`. Worktree setup counts as `factory:spec`. A closed
+  issue is a merged job and carries no stage label.
+- To set a stage, add the new label and remove the old one in one call:
+  `gh issue edit <n> --add-label factory:build --remove-label factory:spec`.
+
+### State comment
+
+You post one comment and edit it in place on every change. Its first line is
+`## state`, followed by a fenced JSON block:
+
+````markdown
+## state
 
 ```json
-{ "id": "003-rate-limiting", "feature": "Rate limit the signup form",
-  "branch": "factory/003-rate-limiting",
-  "worktree": "/Users/you/code/my-app/.claude/worktrees/factory-003-rate-limiting",
-  "stage": "review", "round": 2,
+{ "id": "42-rate-limiting", "branch": "factory/42-rate-limiting",
+  "worktree": "/Users/you/code/my-app/.claude/worktrees/factory-42-rate-limiting",
+  "round": 2,
   "reviews": { "security": "CHANGES", "ux": "PASS", "ui": "pending", "code": "PASS" } }
 ```
+````
 
-- `stage` is one of `spec`, `build`, `review`, `approve`, `merged`,
-  `needs-human`. Worktree setup counts as `spec`.
 - `round` is the current review round (0 until the first round starts).
 - `reviews` holds the current round only. Each value is `pending`, `PASS` or
-  `CHANGES`. Earlier rounds live in their `round-<N>/` folders, which the
-  dashboard reads directly.
-- Rewrite the whole file on every change. `worktree` is always an absolute path.
+  `CHANGES`. Earlier rounds live in their review comments.
+- `worktree` is always an absolute path.
+- Post it with `gh issue comment <n> -F <file>` and keep the comment id from
+  `gh api repos/<owner>/<name>/issues/<n>/comments --jq '.[] | select(.body | startswith("## state")) | .id'`.
+  Edit it with `gh api -X PATCH repos/<owner>/<name>/issues/comments/<id> -F body=@<file>`.
+  Write the file in your scratchpad, never in the main checkout or a worktree.
+
+### Comment protocol
+
+Every factory comment starts with a heading on line 1. Agents post their
+artifacts as separate comments; the dashboard and the agents find them by
+heading, and the latest comment with a heading wins.
+
+| Comment         | Line 1                          | Line 2                   |
+| --------------- | ------------------------------- | ------------------------ |
+| state           | `## state`                      | fenced JSON block        |
+| claim           | `factory: claimed <session-id>` | —                        |
+| spec            | `## spec`                       | —                        |
+| build (round N) | `## build round-<N>`            | `STATUS: READY\|BLOCKED` |
+| review          | `## round-<N> review-<kind>`    | `VERDICT: PASS\|CHANGES` |
+| rework          | `## rework-<k>`                 | note verbatim            |
+| decision        | `## decision`                   | `APPROVE\|ESCALATE`      |
+
+Read comments with `gh issue view <n> --comments --json comments --jq '.comments[].body'`.
+To check one artifact, take the latest comment whose first line is its heading
+and read its second line.
 
 ### Prompts
 
-Every agent prompt starts with the job's absolute paths:
-`Job folder: <repo>/factory/jobs/<job-id>/. Worktree: <worktree>. Branch: factory/<job-id>.`
+Every agent prompt starts with the job's identifiers:
+`Issue: #<n> (<owner>/<name>). Worktree: <worktree>. Branch: factory/<job-id>.`
 Below, `<paths>` stands for that sentence.
 
-Agents that open pages also get a port. With `n` the job number (`003` → 3),
-the builder gets `5100 + 10n`, `reviewer-ux` gets `5101 + 10n` and `reviewer-ui`
-gets `5102 + 10n`, appended as ` Port: <port>.`
+Agents that open pages also get a port. With `n` the issue number, the builder
+gets `5100 + 10n`, `reviewer-ux` gets `5101 + 10n` and `reviewer-ui` gets
+`5102 + 10n`, appended as ` Port: <port>.`
 
 ## /factory <feature>
 
-1. **Create the job.** `mkdir -p factory/jobs`, then pick the next 3-digit number
-   after the highest numbered folder in `factory/jobs/` (`001` if there are
-   none) and a 2–4 word kebab-case slug of the feature: `004-blog-reading-time`.
-   Claim it with `mkdir factory/jobs/<job-id>` (no `-p`). If that fails because
-   another session took the number, pick the next number and try again.
-   The worktree path is `<repo>/.claude/worktrees/factory-<job-id>`. Write
-   `job.json` with that `worktree`, `stage: "spec"`, `round: 0` and all reviews
-   `pending`. Write it now: while your session is inside the worktree in step 2
-   it cannot write to the main checkout.
+1. **Create the job.** Make sure the labels exist, so a fresh repo works on
+   its first run: `gh label create factory --force --color 0E8A16 --description "Software factory job"`,
+   then the same for the five stage labels (`factory:spec`, `factory:build`,
+   `factory:review`, `factory:approve`, `factory:needs-human`). Open the issue:
+   `gh issue create --title "<feature, verbatim>" --label factory --body "Opened by /factory."`
+   prints its URL; the number at the end is `n`. Build the job id
+   `<n>-<slug>`, where the slug is the feature lowercased, every run of
+   non-alphanumerics turned into one hyphen, trimmed, first four words:
+   `42-rate-limit-the-signup`. The worktree path is
+   `<repo>/.claude/worktrees/factory-<job-id>`. Add `factory:spec` and post
+   the state comment with that `worktree`, `round: 0` and all reviews
+   `pending`, so the dashboard shows the job before the worktree exists.
 2. **Worktree.** Create the worktree and its branch from the remote `main`:
    1. Run `git fetch origin main`, so the worktree starts from the latest
       `main`.
@@ -134,46 +170,54 @@ gets `5102 + 10n`, appended as ` Port: <port>.`
    copy env files yourself.
 3. **Spec.** Spawn `spec-writer` with the prompt
    `<paths> Feature: <feature, verbatim>`.
-   Wait for it to finish, then check that `spec.md` exists.
-4. **Build.** Set `stage: "build"`. Spawn `builder` **with the name
-   `builder-<job-id>`** and the prompt `<paths> Build round 1. Port: <port>.`
+   Wait for it to finish, then check that a `## spec` comment exists.
+4. **Build.** Set the stage to `factory:build`. Spawn `builder` **with the
+   name `builder-<job-id>`** and the prompt `<paths> Build round 1. Port: <port>.`
    Wait for it to finish, then go to **Build check**.
 
 ### Build check
 
-Read the first line of `build.md`.
+Read the second line of the latest `## build round-<N>` comment.
 
 - `STATUS: READY`: start the next review round.
 - `STATUS: BLOCKED`: go to **Needs human**.
+- No comment for this round: stop and tell the user.
 
 ### Review round N
 
-1. Set `stage: "review"`, `round: N` and all four reviews to `pending`. Create
-   `factory/jobs/<job-id>/round-<N>/`.
+1. Set the stage to `factory:review` and the state comment to `round: N` with
+   all four reviews `pending`.
 2. Spawn all four reviewers **in one message**, so they run in parallel. Each
    gets the prompt `<paths> Review round N.`, plus its port for `reviewer-ux`
    and `reviewer-ui`.
-3. **WAIT FOR ALL.** Each time a reviewer finishes, read the first line of its
-   file (`VERDICT: PASS` or `VERDICT: CHANGES`) and write that verdict to
-   `job.json` straight away, so the dashboard chips fill in as they land. The
-   round is done only when all four `review-*.md` files exist in `round-<N>/`.
-   Never resume the builder mid-round. If a reviewer finishes without writing
-   its file, or writes a first line that isn't a verdict, stop and tell the user.
+3. **WAIT FOR ALL.** Each time a reviewer finishes, read the second line of
+   its `## round-N review-<kind>` comment (`VERDICT: PASS` or
+   `VERDICT: CHANGES`) and write that verdict into the state comment straight
+   away, so the dashboard chips fill in as they land. The round is done only
+   when all four review comments for round N exist. Never resume the builder
+   mid-round. If a reviewer finishes without posting its comment, or its second
+   line isn't a verdict, stop and tell the user.
 4. Decide:
    - **All PASS**: go to **Approve**.
-   - **Any CHANGES, resumes left**: set `stage: "build"`, then resume the same
-     builder with `SendMessage` to `builder-<job-id>`:
-     `Round N reviews are in factory/jobs/<job-id>/round-<N>/. Address every review with VERDICT: CHANGES, commit, and update build.md for round N+1.`
+   - **Any CHANGES, resumes left**: set the stage to `factory:build`, then
+     resume the same builder with `SendMessage` to `builder-<job-id>`:
+     `Round N reviews are on issue #<n>. Address every review with VERDICT: CHANGES, commit, and post the build comment for round N+1.`
      Wait for it to finish, then go to **Build check**.
-   - **Any CHANGES, no resumes left**: write `decision.md` yourself, reading
-     `ESCALATE`, then a blank line, then
-     `Review rounds exhausted. Outstanding CHANGES in round-<N>/ from: <reviewers>.`
-     Go to **Needs human**.
+   - **Any CHANGES, no resumes left**: post the decision yourself, a comment
+     reading `## decision`, then `ESCALATE`, then a blank line, then
+     `Review rounds exhausted. Outstanding CHANGES in round N from: <reviewers>.`
+     Then open one follow-up issue per outstanding reviewer:
+     `gh issue create --title "<kind> follow-up: <feature>" --label factory --body-file <file>`
+     where the file starts with `Follow-up of #<n>.`, a blank line, and that
+     reviewer's round-N comment body. Follow-ups carry the `factory` label and
+     no stage label, so `/factory next` picks them up like any other queued
+     issue. Go to **Needs human**.
 
 ### Approve
 
-Set `stage: "approve"`. Spawn `approver` with the prompt `<paths> Final round: N.`
-When it finishes, read the first line of `decision.md`:
+Set the stage to `factory:approve`. Spawn `approver` with the prompt
+`<paths> Final round: N.` When it finishes, read the second line of the
+`## decision` comment:
 
 - `APPROVE`: go to **Merge**.
 - `ESCALATE`: go to **Needs human**.
@@ -181,21 +225,21 @@ When it finishes, read the first line of `decision.md`:
 ### Merge
 
 The merge happens in the main checkout, so it must be clean and on `main`:
-`git status --porcelain -- . ':!factory/backlog.md'` prints nothing and
-`git branch --show-current` prints `main`. `factory/backlog.md` is exempt: every
-`/factory next` edits it, and job branches never touch it, so a dirty backlog
-cannot conflict with the merge. If not, set `stage: "needs-human"` and tell the
-user the job is approved but the main checkout is busy; they run
+`git status --porcelain` prints nothing and `git branch --show-current` prints
+`main`. If not, set the stage to `factory:needs-human` and tell the user the
+job is approved but the main checkout is busy; they run
 `/factory approve <job-id>` once it is clean. Otherwise:
 
 ```bash
 git merge --no-ff factory/<job-id> -m "Merge factory/<job-id>"
 git worktree remove <worktree>
 git branch -d factory/<job-id>
+gh issue edit <n> --remove-label factory:<current stage>
+gh issue close <n> --comment "Merged factory/<job-id> into main."
 ```
 
-Set `stage: "merged"`. If the merge fails, run `git merge --abort` (when a merge
-is in progress), set `stage: "needs-human"` and tell the user why. If
+If the merge fails, run `git merge --abort` (when a merge is in progress), set
+the stage to `factory:needs-human` and tell the user why. If
 `git worktree remove` refuses because the worktree is locked, run
 `git worktree unlock <worktree>` and remove it again. If removing the worktree
 still fails, the job is still merged: tell the user what `git worktree remove`
@@ -203,38 +247,43 @@ printed. Never push.
 
 ### Needs human
 
-Set `stage: "needs-human"`. The branch and its worktree stay for the human to
-inspect. Tell the user which job is waiting, give the worktree path, and quote
-`decision.md` (or the BLOCKED reason from `build.md`).
+Set the stage to `factory:needs-human`. The branch and its worktree stay for
+the human to inspect. Tell the user which job is waiting, give the issue URL
+and the worktree path, and quote the `## decision` comment (or the BLOCKED
+reason from the build comment).
 
 ## /factory next
 
-Read `factory/backlog.md` and take the first `- [ ]` item. Claim it with one
-Edit that replaces its exact line with `- [x] <item> → claimed`. If the Edit
-fails because the line changed, another session claimed it: re-read the backlog
-and try the next `- [ ]` item. If none is left, say so and stop.
-
-Run `/factory <item>`, and once step 1 has given it a job id, replace `claimed`
-on its backlog line with the job id.
+1. List the queue: open `factory` issues with no stage label, oldest first:
+   `gh issue list --label factory --state open --json number,title,labels,createdAt --jq '[.[] | select(all(.labels[].name; startswith("factory:") | not))] | sort_by(.createdAt) | .[] | "\(.number)\t\(.title)"'`
+   If it prints nothing, say the queue is empty and stop.
+2. Claim the first issue. Make a session id once per session, for example
+   `$(hostname)-$$-$(date +%s)`, and post the comment
+   `factory: claimed <session-id>`. Then re-read the comments: the earliest
+   comment whose first line starts with `factory: claimed` wins. If it is not
+   yours, another session took the issue: go back to step 1 and skip it.
+3. Run `/factory <feature>` with the issue's title as the feature, starting
+   from the job id in step 1 instead of creating a new issue.
 
 ## /factory approve <job-id>
 
-The job must be in `needs-human`. Run **Merge** with that job id.
+`<job-id>` may be the full job id or just the issue number. The job must have
+the `factory:needs-human` label. Run **Merge** with that job.
 
 ## /factory rework <job-id> <note>
 
-The job must be in `needs-human`.
+The job must have the `factory:needs-human` label.
 
-1. Write the note, verbatim, to `factory/jobs/<job-id>/rework-<k>.md`, where `k`
-   is the next unused number.
-2. Set `stage: "build"`.
+1. Post the note as a comment: `## rework-<k>` on line 1, then the note
+   verbatim, where `k` is the next unused rework number on the issue.
+2. Set the stage to `factory:build`.
 3. Spawn a fresh `builder` named `builder-<job-id>` with the prompt
-   `<paths> Rework: read rework-<k>.md and address it, then update build.md for round N+1. Port: <port>.`
+   `<paths> Rework: read the rework-<k> comment and address it, then post the build comment for round N+1. Port: <port>.`
    (`N` is the job's last round.) A rework run gets a fresh `MAX_RESUMES`.
 4. Continue from **Build check**, exactly like a new job.
 
 ## Reporting
 
 Keep the user posted with one short line per transition, for example
-`003-rate-limiting: round 2, security CHANGES, ux/ui/code PASS → resuming builder`.
+`42-rate-limiting: round 2, security CHANGES, ux/ui/code PASS → resuming builder`.
 When the job ends, say whether it merged or needs a human, and why.
