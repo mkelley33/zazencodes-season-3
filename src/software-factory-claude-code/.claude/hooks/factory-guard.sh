@@ -14,9 +14,11 @@
 #
 # A command matches only at a command boundary: the start of the string, or
 # after &&, ||, ;, |, ( or a newline outside quotes. NAME=value assignments,
-# `env`, `command` and git's global options (-C <dir>, -c <x>, --no-pager, ...)
-# before the subcommand are skipped. Heredoc bodies are skipped, so a review
-# comment that quotes `git push --force` passes.
+# the shell keywords then, do, else, elif, ! and {, the wrappers env (with its
+# options), command, time, nohup, exec, nice, sudo and xargs, and git's global
+# options (-C <dir>, -c <x>, --no-pager, ...) before the subcommand are
+# skipped, and /usr/bin/git counts as git. Heredoc bodies are skipped, so a
+# review comment that quotes `git push --force` passes.
 #
 # Reads the hook JSON on stdin. Exit 2 blocks the call and the one stderr line
 # tells the agent why. Exit 0 allows it. Input it cannot parse is allowed:
@@ -180,16 +182,22 @@ cd_args=()
 for segment in "${segments[@]}"; do
   split_words "$segment"
 
-  # NAME=value assignments and the env and command wrappers come first.
+  # NAME=value assignments, shell keywords and wrappers come first, and env's
+  # own options after env.
   w=0
+  after_env=false
   while [ "$w" -lt "${#words[@]}" ]; do
     case "${words[w]}" in
-      command | env | [A-Za-z_]*=*) w=$((w + 1)) ;;
+      env) after_env=true ;;
+      -*) [ "$after_env" = true ] || break ;;
+      command | then | do | else | elif | '!' | '{' | time | nohup | exec | nice | sudo | xargs \
+        | [A-Za-z_]*=*) ;;
       *) break ;;
     esac
+    w=$((w + 1))
   done
   [ "$w" -lt "${#words[@]}" ] || continue
-  program="${words[w]}"
+  program="${words[w]##*/}"
   w=$((w + 1))
 
   # git's global options come before the subcommand: git -C <dir> merge.

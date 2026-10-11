@@ -197,6 +197,22 @@ for command in "FOO=1 git merge x" "env git merge x" "command git push origin ma
   assert_blocked
 done
 
+begin_case "shell keywords and wrappers before git do not hide it"
+for command in 'for b in x; do git branch -D "$b"; done' "if true; then git merge main; fi" \
+  "if false; then :; else git merge main; fi" "if false; then :; elif git merge main; then :; fi" \
+  "! git merge main" "{ git merge main; }" "time git merge main" "nohup git merge main" \
+  "exec git merge main" "nice git merge main" "sudo git merge main" "xargs git merge main" \
+  "env -i git merge main" "env -i -0 git push origin main" "time env A=1 git merge main"; do
+  run_guard "$command"
+  assert_blocked
+done
+
+begin_case "git by an absolute path is blocked"
+for command in "/usr/bin/git merge main" "/usr/local/bin/gh pr merge 6"; do
+  run_guard "$command"
+  assert_blocked
+done
+
 begin_case "combined short flags are blocked"
 for command in "git push -fu origin factory/1-a" "git push -uf origin factory/1-a" "git branch -df factory/1-a" "git branch -Dq factory/1-a"; do
   run_guard "$command"
@@ -242,6 +258,10 @@ assert_allowed
 
 begin_case "git merge-base with global options is allowed"
 run_guard "git -C /x merge-base main HEAD"
+assert_allowed
+
+begin_case "git merge-base after a shell keyword is allowed"
+run_guard "if true; then git merge-base main HEAD; fi"
 assert_allowed
 
 begin_case "git -C into a repo on a job branch before commit is allowed"
