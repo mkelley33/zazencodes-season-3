@@ -66,7 +66,7 @@ writer of the job's stage label and state comment.
   skills/factory/SKILL.md          # the orchestrator's procedure
   agents/                          # one file per agent in the loop
   hooks/factory-guard.sh           # the Guard: blocks merges and pushes to main
-  settings.json                    # runs the Guard before every Bash call
+  settings.json                    # runs the Guard, allows the factory's gh issue comment and gh issue edit
 factory/
   dashboard.html                   # visual board of the factory's issues
   serve.py                         # serves the board, reads GitHub through gh
