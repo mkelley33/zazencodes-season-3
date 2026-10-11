@@ -37,8 +37,9 @@ that a human merges on GitHub. A PR is opened only when the approver says
 | approve      | `approver`              | `## decision round-<N>`                      |
 
 `MAX_RESUMES = 2`: after round 1 the builder can be resumed at most twice, so a
-run has at most 3 review rounds. To change the factory, edit this file and the
-agent files in `.claude/agents/`.
+run has at most 3 review rounds. To change the factory, edit `BUILD_PROMPT.md`
+for the shape, this file for the procedure, and the agent files in
+`.claude/agents/`.
 
 Every agent reads `AGENTS.md` (or `CLAUDE.md`) for the repo's setup, dev server,
 validation commands and conventions. Nothing repo-specific lives in these files.
