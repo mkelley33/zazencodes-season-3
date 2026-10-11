@@ -20,9 +20,11 @@
 #                 Template does not have, and a Conflict still aborts the run.
 #   - Hook merge: a different .claude/settings.json is never Overwritten.
 #                 Instead jq adds the Template's PreToolUse hooks (the Guard)
-#                 to it, keeping every other key. Without jq, or when the file
-#                 is not valid JSON, it stays as it is and the hook block is
-#                 printed to add by hand.
+#                 and appends its permissions.allow rules (the factory's
+#                 gh issue comment and gh issue edit) that the file lacks,
+#                 keeping its own rules first and every other key as it was.
+#                 Without jq, or when the file is not valid JSON, it stays as
+#                 it is and the Template's settings are printed to add by hand.
 #
 # The last steps check for the gh CLI, which the factory uses to keep each
 # Job on a GitHub Issue, protect the Target's main branch on GitHub, and
@@ -47,14 +49,27 @@ USAGE="Usage: bash scripts/install-software-factory.sh [--force] [--protect-main
 SETTINGS=".claude/settings.json"
 
 # Appends each Template PreToolUse entry ($template[0]) that the settings do
-# not run yet, matched by hook command. Run with jq -e: it prints the merged
-# settings, or false when nothing is missing.
+# not run yet, matched by hook command, and each Template permissions.allow
+# rule they lack, matched by exact string. Run with jq -er: it prints what was
+# added on the first line and the merged settings below it, or false when
+# nothing is missing.
 HOOK_MERGE_FILTER='
-  [.hooks.PreToolUse[]?.hooks[]?.command] as $existing
+  [.hooks.PreToolUse[]?.hooks[]?.command] as $commands
+  | (.permissions.allow // []) as $rules
   | [$template[0].hooks.PreToolUse[]
-      | select(any(.hooks[].command; . as $c | any($existing[]; . == $c)) | not)] as $missing
-  | if ($missing | length) == 0 then false
-    else .hooks.PreToolUse = ((.hooks.PreToolUse // []) + $missing) end'
+      | select(any(.hooks[].command; . as $c | any($commands[]; . == $c)) | not)] as $missing_hooks
+  | [$template[0].permissions.allow[]
+      | select(. as $r | any($rules[]; . == $r) | not)] as $missing_rules
+  | if ($missing_hooks + $missing_rules | length) == 0 then false
+    else
+      ([if ($missing_hooks | length) > 0 then "the Guard" else empty end,
+        if ($missing_rules | length) > 0 then "the permission rules" else empty end]
+        | join(" and ")),
+      (if ($missing_hooks | length) > 0
+         then .hooks.PreToolUse = ((.hooks.PreToolUse // []) + $missing_hooks) else . end
+       | if ($missing_rules | length) > 0
+           then .permissions.allow = ($rules + $missing_rules) else . end)
+    end'
 
 # A pull request is required before merging into main, for admins too, with
 # no approving review required, so the owner can still merge their own PR.
@@ -87,33 +102,33 @@ check_gh() {
   return 0
 }
 
-# Adds the Guard to the Target's own .claude/settings.json. Leaves the file
-# byte-identical when the Guard is already there, when jq is missing, or when
-# jq cannot merge it; the last two print the block to add by hand. Never
-# fails the install.
+# Adds the Guard and the factory's permission rules to the Target's own
+# .claude/settings.json. Leaves the file byte-identical when both are already
+# there, when jq is missing, or when jq cannot merge it; the last two print
+# the Template's settings to add by hand. Never fails the install.
 hook_merge() {
   local merged
   local jq_status=0
 
   if ! command -v jq > /dev/null 2>&1; then
-    printf 'Hook merge: jq was not found, so %s was left unchanged. Add this PreToolUse block to it by hand:\n' \
+    printf 'Hook merge: jq was not found, so %s was left unchanged. Add the hooks and permission rules below to it by hand:\n' \
       "$SETTINGS" >&2
     cat "$template/$SETTINGS" >&2
     return 0
   fi
 
-  merged="$(jq -e --slurpfile template "$template/$SETTINGS" "$HOOK_MERGE_FILTER" \
+  merged="$(jq -er --slurpfile template "$template/$SETTINGS" "$HOOK_MERGE_FILTER" \
     "$target/$SETTINGS" 2> /dev/null)" || jq_status=$?
   case "$jq_status" in
     0)
-      printf '%s\n' "$merged" > "$target/$SETTINGS"
-      printf 'Hook merge: added the Guard to %s.\n' "$SETTINGS"
+      printf '%s\n' "${merged#*$'\n'}" > "$target/$SETTINGS"
+      printf 'Hook merge: added %s to %s.\n' "${merged%%$'\n'*}" "$SETTINGS"
       ;;
     1)
-      printf 'Hook merge: %s already has the Guard.\n' "$SETTINGS"
+      printf 'Hook merge: %s already has the Guard and the permission rules.\n' "$SETTINGS"
       ;;
     *)
-      printf 'Hook merge: could not merge the Guard into %s (is it valid JSON?), so it was left unchanged. Add this PreToolUse block to it by hand:\n' \
+      printf 'Hook merge: could not merge the Guard and the permission rules into %s (is it valid JSON?), so it was left unchanged. Add the hooks and permission rules below to it by hand:\n' \
         "$SETTINGS" >&2
       cat "$template/$SETTINGS" >&2
       ;;
