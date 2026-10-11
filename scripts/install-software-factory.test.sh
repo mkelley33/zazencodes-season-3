@@ -555,6 +555,7 @@ write_file "$target/.claude/settings.json" "$MY_SETTINGS"
 run_install "$target"
 assert_status 0
 assert_output_contains "Hook merge: added the Guard and the permission rules to .claude/settings.json."
+assert_output_contains "Hook merge: these rules now run without a prompt: Bash(gh issue comment *), Bash(gh issue edit *)."
 assert_output_contains "4 added, 0 identical, 1 different"
 assert_output_contains "  .claude/settings.json (apart from the Hook merge above)"
 assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
@@ -575,6 +576,7 @@ run_install "$target"
 assert_status 0
 assert_output_contains "Hook merge: .claude/settings.json already has the Guard and the permission rules."
 assert_output_lacks "Hook merge: added"
+assert_output_lacks "rules now run without a prompt"
 assert_equal "$before" "$(cksum < "$target/.claude/settings.json")" "expected the second run to change nothing"
 
 begin_case "Hook merge creates hooks and permissions when the Target settings have neither"
@@ -583,6 +585,7 @@ write_file "$target/.claude/settings.json" '{"model":"opus"}'
 run_install "$target"
 assert_status 0
 assert_output_contains "Hook merge: added the Guard and the permission rules to .claude/settings.json."
+assert_output_contains "Hook merge: these rules now run without a prompt: Bash(gh issue comment *), Bash(gh issue edit *)."
 assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
 assert_equal "[$FACTORY_RULES]" "$(jq -c .permissions.allow "$target/.claude/settings.json")" \
   "expected both factory rules"
@@ -594,6 +597,7 @@ write_file "$target/.claude/settings.json" "$(jq -c 'del(.permissions)' "$templa
 run_install "$target"
 assert_status 0
 assert_output_contains "Hook merge: added the permission rules to .claude/settings.json."
+assert_output_contains "Hook merge: these rules now run without a prompt: Bash(gh issue comment *), Bash(gh issue edit *)."
 assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
 assert_equal "[$FACTORY_RULES]" "$(jq -c .permissions.allow "$target/.claude/settings.json")" \
   "expected both factory rules"
@@ -604,6 +608,7 @@ write_file "$target/.claude/settings.json" "{\"permissions\":{\"allow\":[\"Bash(
 run_install "$target"
 assert_status 0
 assert_output_contains "Hook merge: added the Guard to .claude/settings.json."
+assert_output_lacks "rules now run without a prompt"
 assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
 assert_equal '["Bash(gh issue edit *)","Bash(ls)","Bash(gh issue comment *)"]' \
   "$(jq -c .permissions.allow "$target/.claude/settings.json")" "expected the rules to stay as they were"
@@ -613,6 +618,7 @@ add_template_settings
 write_file "$target/.claude/settings.json" '{"permissions":{"defaultMode":"acceptEdits","deny":["Bash(rm *)"],"allow":["Bash(gh issue comment *)"],"ask":["Bash(git push *)"]}}'
 run_install "$target"
 assert_status 0
+assert_output_contains "Hook merge: this rule now runs without a prompt: Bash(gh issue edit *)."
 assert_equal '{"defaultMode":"acceptEdits","deny":["Bash(rm *)"],"allow":["Bash(gh issue comment *)","Bash(gh issue edit *)"],"ask":["Bash(git push *)"]}' \
   "$(jq -c .permissions "$target/.claude/settings.json")" \
   "expected only Bash(gh issue edit *) added and every other permission key kept"

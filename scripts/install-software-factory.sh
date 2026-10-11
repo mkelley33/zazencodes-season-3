@@ -23,7 +23,8 @@
 #                 and appends its permissions.allow rules (the factory's
 #                 gh issue comment and gh issue edit) that the file lacks,
 #                 keeping its own rules first and every other key as it was.
-#                 Without jq, or when the file is not valid JSON, it stays as
+#                 It names each rule it added, since those commands then run
+#                 without a prompt. Without jq, or when the file is not valid JSON, it stays as
 #                 it is and the Template's settings are printed to add by hand.
 #
 # The last steps check for the gh CLI, which the factory uses to keep each
@@ -51,8 +52,8 @@ SETTINGS=".claude/settings.json"
 # Appends each Template PreToolUse entry ($template[0]) that the settings do
 # not run yet, matched by hook command, and each Template permissions.allow
 # rule they lack, matched by exact string. Run with jq -er: it prints what was
-# added on the first line and the merged settings below it, or false when
-# nothing is missing.
+# added on the first line, the added rules on the second (empty when there are
+# none) and the merged settings below them, or false when nothing is missing.
 HOOK_MERGE_FILTER='
   [.hooks.PreToolUse[]?.hooks[]?.command] as $commands
   | (.permissions.allow // []) as $rules
@@ -65,6 +66,9 @@ HOOK_MERGE_FILTER='
       ([if ($missing_hooks | length) > 0 then "the Guard" else empty end,
         if ($missing_rules | length) > 0 then "the permission rules" else empty end]
         | join(" and ")),
+      (if ($missing_rules | length) == 0 then ""
+       elif ($missing_rules | length) == 1 then "this rule now runs without a prompt: \($missing_rules[0])"
+       else "these rules now run without a prompt: \($missing_rules | join(", "))" end),
       (if ($missing_hooks | length) > 0
          then .hooks.PreToolUse = ((.hooks.PreToolUse // []) + $missing_hooks) else . end
        | if ($missing_rules | length) > 0
@@ -108,6 +112,8 @@ check_gh() {
 # the Template's settings to add by hand. Never fails the install.
 hook_merge() {
   local merged
+  local added
+  local rules
   local jq_status=0
 
   if ! command -v jq > /dev/null 2>&1; then
@@ -121,8 +127,14 @@ hook_merge() {
     "$target/$SETTINGS" 2> /dev/null)" || jq_status=$?
   case "$jq_status" in
     0)
+      added="${merged%%$'\n'*}"
+      merged="${merged#*$'\n'}"
+      rules="${merged%%$'\n'*}"
       printf '%s\n' "${merged#*$'\n'}" > "$target/$SETTINGS"
-      printf 'Hook merge: added %s to %s.\n' "${merged%%$'\n'*}" "$SETTINGS"
+      printf 'Hook merge: added %s to %s.\n' "$added" "$SETTINGS"
+      if [ -n "$rules" ]; then
+        printf 'Hook merge: %s.\n' "$rules"
+      fi
       ;;
     1)
       printf 'Hook merge: %s already has the Guard and the permission rules.\n' "$SETTINGS"
