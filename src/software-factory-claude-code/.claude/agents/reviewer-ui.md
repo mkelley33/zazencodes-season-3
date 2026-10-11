@@ -22,7 +22,7 @@ own copy of each file, on another branch, so never search from there.
 ## Read
 
 Read the issue's comments with
-`gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
+`gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
 Every comment starts at a `=== comment` line; its heading is the line after
 that. Pick comments by heading. The latest comment with a heading wins.
 

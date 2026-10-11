@@ -24,7 +24,7 @@ checkout belongs to the user, and the other worktrees to other jobs.
 ## Read first
 
 Read the issue's comments with
-`gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
+`gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
 Every comment starts at a `=== comment` line; its heading is the line after
 that. Pick comments by heading. The latest comment with a heading wins.
 

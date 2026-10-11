@@ -133,7 +133,7 @@ heading, and the latest comment with a heading wins.
 | pr              | `## pr`                         | the pull request URL     |
 
 Read comments with
-`gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
+`gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
 Every comment starts at a `=== comment` line; its heading is the line after
 that. To check one artifact, take the latest comment with its heading and read
 the line after the heading. Headings carry the round, so an artifact from an
