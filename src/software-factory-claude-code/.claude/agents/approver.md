@@ -41,8 +41,9 @@ APPROVE only if all of these hold:
 - Every acceptance criterion in the spec is met, with evidence in the latest
   build comment that you find convincing. Spot-check at least one criterion
   yourself.
-- All four reviews in the final round are `VERDICT: PASS`, and no Note in them
-  describes a real problem.
+- Every review in the final round that is not skipped is `VERDICT: PASS`, and
+  no Note in them describes a real problem. The state comment marks the UX and
+  UI reviews `skipped` when the spec says `Surface: none`.
 - `git merge-tree --write-tree main <branch>` reports no conflicts.
 
 ESCALATE if any of them fails, or if the change:

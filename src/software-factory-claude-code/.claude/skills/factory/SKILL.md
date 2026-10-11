@@ -104,8 +104,9 @@ You post one comment and edit it in place on every change. Its first line is
 ````
 
 - `round` is the current review round (0 until the first round starts).
-- `reviews` holds the current round only. Each value is `pending`, `PASS` or
-  `CHANGES`. Earlier rounds live in their review comments.
+- `reviews` holds the current round only. Each value is `pending`, `PASS`,
+  `CHANGES` or `skipped`. `skipped` marks a review the spec's Surface makes
+  unnecessary. Earlier rounds live in their review comments.
 - `worktree` is always an absolute path.
 - Post it with `gh issue comment <n> -F <file>` and keep the comment id from
   `gh api repos/<owner>/<name>/issues/<n>/comments --jq '.[] | select(.body | startswith("## state")) | .id'`.
@@ -122,7 +123,7 @@ heading, and the latest comment with a heading wins.
 | --------------- | ------------------------------- | ------------------------ |
 | state           | `## state`                      | fenced JSON block        |
 | claim           | `factory: claimed <session-id>` | —                        |
-| spec            | `## spec`                       | —                        |
+| spec            | `## spec`                       | `Surface: page\|none`    |
 | build (round N) | `## build round-<N>`            | `STATUS: READY\|BLOCKED` |
 | review          | `## round-<N> review-<kind>`    | `VERDICT: PASS\|CHANGES` |
 | rework          | `## rework-<k>`                 | note verbatim            |
@@ -198,19 +199,22 @@ Read the second line of the latest `## build round-<N>` comment.
 ### Review round N
 
 1. Set the stage to `factory:review` and the state comment to `round: N` with
-   all four reviews `pending`.
-2. Spawn all four reviewers **in one message**, so they run in parallel. Each
-   gets the prompt `<paths> Review round N.`, plus its port for `reviewer-ux`
-   and `reviewer-ui`.
+   all four reviews `pending`. If line 2 of the latest `## spec` comment is
+   exactly `Surface: none`, set `ux` and `ui` to `skipped` instead.
+2. Spawn the reviewers **in one message**, so they run in parallel: all four,
+   or only `reviewer-security` and `reviewer-code` when the Surface is `none`.
+   Any other Surface line runs all four. Each gets the prompt
+   `<paths> Review round N.`, plus its port for `reviewer-ux` and
+   `reviewer-ui`.
 3. **WAIT FOR ALL.** Each time a reviewer finishes, read the second line of
    its `## round-N review-<kind>` comment (`VERDICT: PASS` or
    `VERDICT: CHANGES`) and write that verdict into the state comment straight
    away, so the dashboard chips fill in as they land. The round is done only
-   when all four review comments for round N exist. Never resume the builder
-   mid-round. If a reviewer finishes without posting its comment, or its second
-   line isn't a verdict, stop and tell the user.
-4. Decide:
-   - **All PASS**: go to **Approve**.
+   when every review that is not skipped has its comment for round N. Never
+   resume the builder mid-round. If a reviewer finishes without posting its
+   comment, or its second line isn't a verdict, stop and tell the user.
+4. Decide, counting only the reviews that are not skipped:
+   - **All PASS** (every review that is not skipped is PASS): go to **Approve**.
    - **Any CHANGES, resumes left**: set the stage to `factory:build`, then
      resume the same builder with `SendMessage` to `builder-<job-id>`:
      `Round N reviews are on issue #<n>. Address every review with VERDICT: CHANGES, commit, and post the build comment for round N+1.`
@@ -252,7 +256,8 @@ gh issue edit <n> --add-label factory:pr --remove-label factory:<current stage>
 
 The body file lives in your scratchpad. It starts with `Closes #<n>.`, a blank
 line, then the `## Why` section of the latest `## decision round-N` comment,
-then a line naming the final round and that all four reviews passed. Post the
+then a line naming the final round and that every review that was not skipped
+passed. Post the
 PR URL on the issue as a comment: `## pr` on line 1, the URL on line 2.
 
 The branch and its worktree stay until the human merges the PR, so a review

@@ -34,16 +34,22 @@ Post it from a heredoc, so nothing is written to disk:
 ```bash
 gh issue comment <n> --body-file - <<'EOF'
 ## spec
+Surface: page
 
 # <short title>
 ...
 EOF
 ```
 
-The first line must be exactly `## spec`.
+The first line must be exactly `## spec` and the second line exactly
+`Surface: page` or `Surface: none`. Pick `page` when the change shows on a page
+someone can open (markup, styles, copy, client behaviour), and `none` otherwise
+(scripts, backend-only, docs, config). With `none`, the UX and UI reviews are
+skipped.
 
 ```markdown
 ## spec
+Surface: page | none
 
 # <short title>
 
