@@ -28,10 +28,13 @@ yours.
     reviewer-ui.md               sonnet  posts the round-N UI review
     reviewer-code.md             sonnet  posts the round-N code review
     approver.md                  opus    posts the decision comment
+  hooks/factory-guard.sh         the Guard: blocks merges and pushes to main
+  settings.json                  runs the Guard before every Bash call
 factory/
   dashboard.html                 the visual board
   serve.py                       serves the board and reads GitHub through gh
-BUILD_PROMPT.md                  the prompt that built the original factory
+  clean.sh                       removes the worktree and branch of merged jobs
+BUILD_PROMPT.md                  the factory's shape: loop, files, rules, commands
 ```
 
 ## How it works
@@ -49,10 +52,15 @@ BUILD_PROMPT.md                  the prompt that built the original factory
   such as `## spec`, `## round-1 review-ux` or `## decision round-1`. Every review's second line is
   `VERDICT: PASS` or `VERDICT: CHANGES`; the decision's is `APPROVE` or
   `ESCALATE`.
-- The four reviewers run in parallel. A round is done only when all four
-  comments exist. If any says CHANGES, the same builder is resumed (at most
-  twice). When the rounds run out, each outstanding review becomes a new
-  `factory` issue, queued for `/factory next`.
+- The spec's second line is its Surface: `Surface: page` when the change
+  shows on a page someone can open, `Surface: none` for scripts, backend,
+  docs or config. With `none` there is nothing to look at, so the UX and UI
+  reviews are skipped and their chips show greyed on the board.
+- The reviewers run in parallel. A round is done only when every review that
+  is not skipped has its comment, and only those reviews count. If any says
+  CHANGES, the same builder is resumed (at most twice). When the rounds run
+  out, each outstanding review becomes a new `factory` issue, queued for
+  `/factory next`.
 - Each job gets its own git worktree under `.claude/worktrees/` on a
   `factory/<job-id>` branch, where the job id is the issue number plus a slug.
   Open several sessions and run `/factory` in each to build features in
@@ -65,14 +73,34 @@ BUILD_PROMPT.md                  the prompt that built the original factory
 /factory next                    claim the oldest open `factory` issue nobody has started
 /factory approve <job-id>        open a pull request for a needs-human job
 /factory rework <job-id> <note>  send a needs-human job back to the builder with feedback
+/factory clean                   remove the worktree and branch of every merged job
 ```
 
 `/factory next` is how you queue work: open an issue, add the `factory` label,
-and a session will pick it up.
+and a session will pick it up. `/factory next` and `/factory <feature>` run
+`/factory clean` first, so merged jobs don't pile up.
+
+## The Guard
+
+`.claude/hooks/factory-guard.sh` runs before every Bash command an agent or
+the orchestrator runs, through the hook in `.claude/settings.json`. It blocks
+`git merge`, `gh pr merge`, pushes to `main`, force pushes, `git branch -D`
+and commits on `main`, so the only way work reaches `main` is a pull request
+you merge. Text inside quotes or a heredoc, such as a review that quotes
+`git push --force`, passes.
+
+If you copy the folder by hand into a repo that already has its own
+`.claude/settings.json`, keep yours and add the `PreToolUse` entry from the
+template's `settings.json` to it by hand.
 
 ## Use it in your repo
 
-1. Copy `.claude/` and `factory/` into your repo root.
+1. Copy `.claude/` and `factory/` into your repo root. Or, from the repo this
+   template comes from, run `bash scripts/install-software-factory.sh`: it
+   copies only what your repo is missing, adds the Guard to your existing
+   `.claude/settings.json` (a Hook merge), and by default (`--protect-main`)
+   protects `main` on GitHub: a pull request is required, force pushes and
+   deletion are refused. Pass `--no-protect-main` to skip that step.
 2. Install the [`gh`](https://cli.github.com) CLI and run `gh auth login` with
    access to the repo. The factory creates its labels on the first run.
 3. Make sure your `AGENTS.md` (or `CLAUDE.md`) says how to set up a fresh
@@ -103,10 +131,8 @@ Pass `--repo owner/name` to watch a repo other than the current directory's.
 
 ## BUILD_PROMPT.md
 
-The prompt used to build the original factory, kept verbatim for reference.
-If you are copying this folder as a template, ignore it.
-
-The factory has grown since then: it now runs each job in its own git worktree
-and records every job on its own GitHub issue, instead of the single
-`board.json` the prompt describes, so several jobs can run at once. It also
-opens a pull request instead of merging to `main`, so a human always merges.
+The factory's shape: the loop diagram, the files, the rules and the commands.
+It started as the prompt that built the original factory and is now kept up
+to date as the design doc. `SKILL.md` holds the procedure, `BUILD_PROMPT.md`
+the shape. To change the factory, change the shape there first, then make
+`SKILL.md` and the agent files match.
