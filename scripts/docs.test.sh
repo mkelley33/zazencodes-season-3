@@ -3,8 +3,8 @@
 # Drift test for the software factory's two descriptions of itself:
 # BUILD_PROMPT.md (the shape) and SKILL.md (the procedure). Both must name
 # every stage label and every command. Also checks the dashboard footer's
-# command list, the agents' heredoc delimiter, and the command that reads
-# issue comments.
+# command list, the agents' heredoc delimiter, the command that reads issue
+# comments, and what the README claims for the Guard.
 #
 # Run: bash scripts/docs.test.sh
 #
@@ -72,6 +72,13 @@ case_count=$((case_count + 1))
 for file in $(grep -rlF -- "--comments --json" "$TEMPLATE"); do
   fail "${file#"$TEMPLATE/"} uses gh issue view --comments --json, which gh rejects"
 done
+
+# The Guard fails open and only branch protection guards the remote main, so
+# the README must not claim a pull request is the only way to reach main.
+case_count=$((case_count + 1))
+if grep -qF -- "only way work reaches" "$TEMPLATE/README.md"; then
+  fail "README.md says the Guard makes a pull request the only way work reaches main"
+fi
 
 printf '%s cases, %s failed assertions\n' "$case_count" "$failure_count"
 [ "$failure_count" -eq 0 ]
