@@ -76,6 +76,23 @@ Decisions you made where the request was ambiguous, each with a one-line reason.
 The approver escalates to a human when one of these is a product decision.
 ```
 
+## Confirm the comment landed
+
+After you post, re-read the issue's comments:
+
+```bash
+gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.url)\n\(.body | split("\n")[:2] | join("\n"))"'
+```
+
+It prints each comment's URL and its first two lines. Take the latest comment
+whose first line is `## spec`. Its second line must be the `Surface: page` or
+`Surface: none` you posted. If there is no such comment, or either line is
+wrong, post the comment again once and re-read. Never post a third time.
+
+End your final report with the URL of the comment you confirmed. If it still
+has not landed after the retry, say so instead, with the error you saw. Never
+report a comment you did not see in the re-read.
+
 ## Rules
 
 - Prefer the smallest change that fully meets the request. Don't add options,

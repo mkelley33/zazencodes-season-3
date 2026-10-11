@@ -80,3 +80,21 @@ Non-blocking observations. Optional.
   Don't block on pre-existing issues the change didn't make worse; mention
   them under Notes.
 - Under Findings, write "None." when there are none.
+
+## Confirm the comment landed
+
+After you post, re-read the issue's comments:
+
+```bash
+gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.url)\n\(.body | split("\n")[:2] | join("\n"))"'
+```
+
+It prints each comment's URL and its first two lines. Take the latest comment
+whose first line is `## round-<N> review-security`. Its second line must be
+the `VERDICT: PASS` or `VERDICT: CHANGES` you posted. If there is no such
+comment, or either line is wrong, post the comment again once and re-read.
+Never post a third time.
+
+End your final report with the URL of the comment you confirmed. If it still
+has not landed after the retry, say so instead, with the error you saw. Never
+report a comment you did not see in the re-read.

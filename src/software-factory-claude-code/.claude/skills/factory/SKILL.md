@@ -141,6 +141,11 @@ that. To check one artifact, take the latest comment with its heading and read
 the line after the heading. Headings carry the round, so an artifact from an
 earlier round can never pass for the current one.
 
+After posting, each agent re-reads the issue's comments and
+confirms its comment landed, with its heading on line 1 and its status line on
+line 2. It posts again once if not, and its final report gives the URL of the
+comment it confirmed. You still check for the comment yourself.
+
 ### Prompts
 
 Every agent prompt starts with the job's identifiers:

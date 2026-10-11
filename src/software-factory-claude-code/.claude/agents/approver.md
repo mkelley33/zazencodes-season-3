@@ -91,3 +91,20 @@ If the `gh issue comment` is denied or fails, do not try another way to post
 it: no file, no other command, no retry. End your reply with the full decision
 text you meant to post and the reason it was not posted, so the orchestrator
 can relay them to the human.
+
+## Confirm the comment landed
+
+After you post, re-read the issue's comments:
+
+```bash
+gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.url)\n\(.body | split("\n")[:2] | join("\n"))"'
+```
+
+It prints each comment's URL and its first two lines. Take the latest comment
+whose first line is `## decision round-<N>`. Its second line must be the
+`APPROVE` or `ESCALATE` you posted. If there is no such comment, or either line
+is wrong, post the comment again once and re-read. Never post a third time.
+
+End your final report with the URL of the comment you confirmed. If it still
+has not landed after the retry, say so instead, with the error you saw. Never
+report a comment you did not see in the re-read.
