@@ -99,6 +99,8 @@ one worktree under `.claude/worktrees/` on a `factory/<job-id>` branch.
   with SendMessage for each new round.
 - The factory never merges. APPROVE, or a human's /factory approve, opens a
   pull request whose body says `Closes #<n>`; a human merges it on GitHub.
+- An approver that posts no decision sends the job to `factory:needs-human`,
+  where a human's /factory approve or /factory rework takes over.
 - The Guard enforces that: it blocks `git merge`, `gh pr merge`, pushes to
   main, force pushes, `git branch -D` and commits on main. Branch protection on
   main backs it up on GitHub.

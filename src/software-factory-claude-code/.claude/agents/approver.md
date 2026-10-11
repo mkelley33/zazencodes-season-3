@@ -86,3 +86,8 @@ files to look at.
 
 The first line must be exactly `## decision round-<N>` and the second line exactly
 `APPROVE` or `ESCALATE`.
+
+If the `gh issue comment` is denied or fails, do not try another way to post
+it: no file, no other command, no retry. End your reply with the full decision
+text you meant to post and the reason it was not posted, so the orchestrator
+can relay them to the human.
