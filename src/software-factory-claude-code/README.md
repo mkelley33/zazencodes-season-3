@@ -44,7 +44,8 @@ BUILD_PROMPT.md                  the factory's shape: loop, files, rules, comman
   where the job is, a state comment holds the round and verdicts, and every
   agent posts its artifact as a comment. `factory:pr` means a pull request is
   open and waits for you. A closed issue is a merged job: the PR says
-  `Closes #<n>`, so merging it closes the issue.
+  `Closes #<n>`, so merging it closes the issue. An issue closed as
+  not planned is an abandoned job and is left off the board.
 - The session that runs `/factory` becomes the orchestrator. It spawns every
   agent and is the only writer of the job's label and state comment.
 - Agents get their context from the issue and the repo, not the conversation,
@@ -99,20 +100,31 @@ template's `settings.json` to it by hand.
 
 1. Copy `.claude/` and `factory/` into your repo root. Or, from the repo this
    template comes from, run `bash scripts/install-software-factory.sh`: it
-   copies only what your repo is missing, adds the Guard to your existing
-   `.claude/settings.json` (a Hook merge), and by default (`--protect-main`)
-   protects `main` on GitHub: a pull request is required, force pushes and
-   deletion are refused. Pass `--no-protect-main` to skip that step.
+   asks for the Target path, copies only what your repo is missing, adds the
+   Guard to your existing `.claude/settings.json` (a Hook merge), and by
+   default (`--protect-main`) protects `main` on GitHub: a pull request is
+   required, force pushes and deletion are refused. Pass `--no-protect-main`
+   to skip that step. The Hook merge needs `jq`; without it the settings file
+   is left as it is and the hook block is printed for you to add by hand.
+   Pass `--force` to overwrite the Template files that differ in your repo
+   (each different Skip that is a regular file becomes an Overwrite).
+   Directories, symlinks and your `.claude/settings.json` are never
+   overwritten, and a Conflict still stops the Install.
 2. Install the [`gh`](https://cli.github.com) CLI and run `gh auth login` with
-   access to the repo. The factory creates its labels on the first run.
+   access to the repo. Install warns when `gh` is missing but does not
+   install it or log you in. The factory creates its labels on the first run.
 3. Make sure your `AGENTS.md` (or `CLAUDE.md`) says how to set up a fresh
    checkout, start the dev server on a given port, and run your tests, build
    and lint. The agents carry nothing repo-specific; they read all of it from
    there.
-4. Install the [`agent-browser`](https://github.com/vercel-labs/agent-browser)
-   CLI if your project has pages to look at. The builder and the UX and UI
-   reviewers use it to check the running app.
-5. Commit everything on `main`, then run `/factory <feature>`.
+4. The builder and the UX and UI reviewers use the
+   [`agent-browser`](https://github.com/vercel-labs/agent-browser) CLI to
+   check the running app. Install installs it with Homebrew when it is
+   missing. If you copied the folder by hand or have no Homebrew, install it
+   yourself if your project has pages to look at.
+5. Commit the Template on a branch, open a pull request, merge it on GitHub
+   and pull `main`, so `main`, local and remote, has the factory. Then run
+   `/factory <feature>`.
 
 The review checklists are deliberately general. Ask Claude to tailor them to
 your stack: your framework, your security hot spots, and what the approver
@@ -129,7 +141,10 @@ through `gh`, so it needs the same login as the factory. Jobs move across the
 stages as cards, review chips fill in as verdicts land, and jobs that need you
 stand out. Click a card to read its comments. It polls every ten seconds and
 backs off when GitHub's rate limit runs low, so leave it open while jobs run.
-Pass `--repo owner/name` to watch a repo other than the current directory's.
+Pass `--repo owner/name` to watch a repo other than the current directory's,
+and `--port` to listen on a port other than 8765. The server listens on
+127.0.0.1 only, refuses requests without a local Host header, and reads
+nothing but the repo's issues and their comments.
 
 ## BUILD_PROMPT.md
 
