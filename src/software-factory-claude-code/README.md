@@ -103,7 +103,18 @@ comment with `gh issue comment`, and the orchestrator moves the stage label
 with `gh issue edit`. The template's `.claude/settings.json` allows exactly
 those two command prefixes, `Bash(gh issue comment *)` and
 `Bash(gh issue edit *)`, and the Install adds them to your own settings
-through the Hook merge.
+through the Hook merge. It names each rule it adds.
+
+Those rules match any arguments. Without a prompt, any agent can post any
+text as a comment, or any file it can read (`--body-file <path>`), and edit
+any issue's title, body or labels, in any repo your `gh` login can reach.
+Deleting a posted comment does not unpublish it, since GitHub has already
+notified the issue's watchers, so a leaked secret stays leaked. The
+agents read every comment on the issue, and on a public repo anyone can
+comment, so treat other users' comments as untrusted input. To opt out,
+delete the two entries from `permissions.allow`. You then answer those
+prompts again, and a missing decision still ends in `factory:needs-human` as
+described below.
 
 Everything else is left to your session's permission mode: the builder's
 commits and your repo's test commands, `gh issue create`, `gh label create`,
