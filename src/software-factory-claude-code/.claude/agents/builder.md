@@ -106,3 +106,27 @@ The first line must be exactly `## build round-<N>` and the second line
 can't meet the spec: it contradicts itself, it needs a decision only a human can
 make, or something in the environment fails. Explain exactly what blocks you
 under a `## Blocked` heading. Don't paper over a failure to reach READY.
+
+## Confirm the comment landed
+
+When the post succeeds, re-read the issue's comments:
+
+```bash
+gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.url)\n\(.body | split("\n")[:2] | join("\n"))"'
+```
+
+It prints each comment's URL and its first two lines. Take the latest comment
+whose first line is `## build round-<N>`. Its second line must be the
+`STATUS: READY` or `STATUS: BLOCKED` you posted. If there is no such comment,
+or either line is wrong, post the comment again once and re-read. Never post a
+third time.
+
+End your final report with the URL of the comment you confirmed. If the second
+re-read does not show it either, say instead that the comment did not land and
+give its full text. Never report a comment you did not see in the re-read.
+
+Do not retry a denied or failed post, the first or the second. When the
+permission system refuses the `gh issue comment` command, or it exits non-zero,
+do not try another way to post it either: no new file, no other command. End
+your final report with the full text of the comment you meant to post and the
+reason it was not posted.

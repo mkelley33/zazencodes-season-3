@@ -3,10 +3,10 @@
 # Drift test for the software factory's two descriptions of itself:
 # BUILD_PROMPT.md (the shape) and SKILL.md (the procedure). Both must name
 # every stage label and every command. Also checks the dashboard footer's
-# command list, the agents' heredoc delimiter, the command that reads issue
-# comments, what the README claims for the Guard, and that the README names
-# every flag of the install script and of serve.py and every permission rule
-# of the Template settings.
+# command list, the agents' heredoc delimiter, that every agent confirms its
+# comment landed, the command that reads issue comments, what the README claims
+# for the Guard, and that the README names every flag of the install script and
+# of serve.py and every permission rule of the Template settings.
 #
 # Run: bash scripts/docs.test.sh
 #
@@ -67,6 +67,23 @@ for agent in spec-writer reviewer-security reviewer-ux reviewer-ui reviewer-code
   if grep -qE "<<'?EOF|^EOF$" "$TEMPLATE/$file"; then
     fail "$file still uses the heredoc delimiter EOF"
   fi
+done
+
+# After posting, each agent re-reads the issue's comments to see its own.
+check "confirms its comment landed"
+
+# Every agent file has that section, with the command that prints each
+# comment's URL and first two lines, and the rule that a denied or failed post
+# is never retried.
+case_count=$((case_count + 1))
+for agent in spec-writer builder reviewer-security reviewer-ux reviewer-ui reviewer-code approver; do
+  file=".claude/agents/$agent.md"
+  grep -qx "## Confirm the comment landed" "$TEMPLATE/$file" \
+    || fail "$file has no '## Confirm the comment landed' section"
+  grep -qF -- '"=== comment \(.url)' "$TEMPLATE/$file" \
+    || fail "$file does not re-read comments with their URLs"
+  grep -qF -- "Do not retry a denied or failed post" "$TEMPLATE/$file" \
+    || fail "$file does not say a denied or failed post is not retried"
 done
 
 # gh issue view rejects --comments together with --json.
