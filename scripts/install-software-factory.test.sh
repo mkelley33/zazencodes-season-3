@@ -395,9 +395,38 @@ assert_status 0
 assert_output_contains "agent-browser: already installed"
 assert_equal "" "$(cat "$call_log")" "expected no brew or agent-browser calls"
 
-begin_case "missing agent-browser is installed with Homebrew after the report"
+begin_case "--install-agent-browser with agent-browser on the PATH installs nothing"
+fake_command brew 0
+run_install "$target" --install-agent-browser
+assert_status 0
+assert_output_contains "agent-browser: already installed"
+assert_equal "" "$(cat "$call_log")" "expected no brew or agent-browser calls"
+
+begin_case "missing agent-browser is not installed without --install-agent-browser"
 agent_browser_missing_with_brew 0
 run_install "$target"
+assert_status 0
+assert_equal "" "$(cat "$call_log")" "expected no brew or agent-browser calls"
+assert_output_contains "agent-browser: not installed"
+assert_output_contains "--install-agent-browser"
+assert_output_contains "brew install agent-browser && agent-browser install"
+assert_content "$target/factory/dashboard.html" "template dashboard"
+case "$output" in
+  *"Done: 4 added"*"agent-browser: not installed"*) ;;
+  *) fail "expected the copy report before the agent-browser step. Output: $output" ;;
+esac
+
+begin_case "missing agent-browser without Homebrew prints the manual steps without the flag"
+rm "$case_dir/bin/agent-browser"
+run_install "$target"
+assert_status 0
+assert_equal "" "$(cat "$call_log")" "expected no brew or agent-browser calls"
+assert_output_contains "brew install agent-browser && agent-browser install"
+assert_output_contains "https://github.com/vercel-labs/agent-browser"
+
+begin_case "--install-agent-browser installs a missing agent-browser with Homebrew after the report"
+agent_browser_missing_with_brew 0
+run_install "$target" --install-agent-browser
 assert_status 0
 assert_equal "brew install agent-browser
 agent-browser install" "$(cat "$call_log")" "expected brew install, then agent-browser install"
@@ -407,17 +436,18 @@ case "$output" in
   *) fail "expected the copy report before the agent-browser step. Output: $output" ;;
 esac
 
-begin_case "missing agent-browser without Homebrew prints manual steps and continues"
+begin_case "--install-agent-browser without Homebrew prints manual steps and continues"
 rm "$case_dir/bin/agent-browser"
-run_install "$target"
+run_install "$target" --install-agent-browser
 assert_status 0
+assert_output_contains "Homebrew was not found"
 assert_output_contains "https://github.com/vercel-labs/agent-browser"
 assert_equal "" "$(cat "$call_log")" "expected no brew or agent-browser calls"
 
 begin_case "failed brew install exits non-zero but keeps the copy"
 rm "$case_dir/bin/agent-browser"
 fake_command brew 1
-run_install "$target"
+run_install "$target" --install-agent-browser
 assert_failed
 assert_equal "brew install agent-browser" "$(cat "$call_log")" "expected only the brew install call"
 assert_output_contains "https://github.com/vercel-labs/agent-browser"
@@ -425,7 +455,7 @@ assert_content "$target/factory/dashboard.html" "template dashboard"
 
 begin_case "failed agent-browser install exits non-zero but keeps the copy"
 agent_browser_missing_with_brew 1
-run_install "$target"
+run_install "$target" --install-agent-browser
 assert_failed
 assert_output_contains "https://github.com/vercel-labs/agent-browser"
 assert_content "$target/factory/dashboard.html" "template dashboard"
@@ -433,9 +463,27 @@ assert_content "$target/factory/dashboard.html" "template dashboard"
 begin_case "Conflict aborts before the agent-browser step"
 agent_browser_missing_with_brew 0
 write_file "$target/factory" "i am a file"
-run_install "$target"
+run_install "$target" --install-agent-browser
 assert_failed
 assert_equal "" "$(cat "$call_log")" "expected no brew or agent-browser calls"
+
+begin_case "--install-agent-browser given twice is rejected before the prompt"
+agent_browser_missing_with_brew 0
+before="$(snapshot "$case_dir")"
+run_install "$target" --install-agent-browser --install-agent-browser
+assert_failed
+assert_output_contains "--install-agent-browser"
+assert_output_lacks "Target path:"
+assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
+
+begin_case "--install-agent-browser combines with --force and --no-protect-main in any order"
+agent_browser_missing_with_brew 0
+write_file "$target/README.md" "my readme"
+run_install "$target" --no-protect-main --install-agent-browser --force
+assert_status 0
+assert_content "$target/README.md" "template readme"
+assert_output_contains "main protection: skipped (--no-protect-main)."
+assert_output_contains "agent-browser: installed"
 
 begin_case "the real Template is used when no override is set"
 template=""
@@ -735,7 +783,7 @@ begin_case "--protect-main with --no-protect-main is rejected before the prompt"
 before="$(snapshot "$case_dir")"
 run_install "$target" --protect-main --no-protect-main
 assert_failed
-assert_output_contains "Usage: bash scripts/install-software-factory.sh [--force] [--protect-main | --no-protect-main]"
+assert_output_contains "Usage: bash scripts/install-software-factory.sh [--force] [--protect-main | --no-protect-main] [--install-agent-browser]"
 assert_output_lacks "Target path:"
 assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
 
