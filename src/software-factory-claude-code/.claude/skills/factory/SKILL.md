@@ -88,6 +88,8 @@ comes from `gh repo view --json nameWithOwner -q .nameWithOwner`, run once in
   issue when the human merges the PR.
 - To set a stage, add the new label and remove the old one in one call:
   `gh issue edit <n> --add-label factory:build --remove-label factory:spec`.
+  If a `gh issue edit` that sets a stage is denied or fails, stop and tell the
+  user the exact `gh issue edit` command to run.
 
 ### State comment
 
@@ -243,8 +245,12 @@ second line of the `## decision round-N` comment:
 
 - `APPROVE`: go to **Pull request**.
 - `ESCALATE`: go to **Needs human**.
-- No comment for round N: stop and tell the user. Never act on a decision
+- No comment for round N: go to **Needs human**. Never act on a decision
   from an earlier round.
+
+The same goes when the approver cannot be spawned at all (the spawn is denied
+or fails): go to **Needs human**. Do not retry the approver, and never post
+the decision yourself.
 
 ### Pull request
 
@@ -279,6 +285,11 @@ Set the stage to `factory:needs-human`. The branch and its worktree stay for
 the human to inspect. Tell the user which job is waiting, give the issue URL
 and the worktree path, and quote the latest `## decision round-N` comment (or the BLOCKED
 reason from the build comment).
+
+When the approver posted no decision for round N, say so instead, and quote
+the approver's final reply if there was one. Point the user at
+`/factory approve <job-id>`, to open the pull request after checking the
+round-N reviews, or `/factory rework <job-id> <note>`.
 
 ## /factory next
 

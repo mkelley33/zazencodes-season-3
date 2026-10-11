@@ -542,23 +542,25 @@ assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
 # shellcheck disable=SC2016 # the hook command is stored literally
 GUARD_COMMAND='bash "$CLAUDE_PROJECT_DIR/.claude/hooks/factory-guard.sh"'
 MY_SETTINGS='{"permissions":{"allow":["Bash(ls)"]},"hooks":{"PreToolUse":[{"matcher":"Write","hooks":[{"type":"command","command":"node mine.mjs"}]}]}}'
+FACTORY_RULES='"Bash(gh issue comment *)","Bash(gh issue edit *)"'
 
 # Prints how many PreToolUse hooks in $1 run the Guard.
 guard_count() {
   jq --arg c "$GUARD_COMMAND" '[.hooks.PreToolUse[].hooks[] | select(.command == $c)] | length' "$1"
 }
 
-begin_case "Hook merge adds the Guard to an existing settings.json once"
+begin_case "Hook merge adds the Guard and the permission rules to an existing settings.json once"
 add_template_settings
 write_file "$target/.claude/settings.json" "$MY_SETTINGS"
 run_install "$target"
 assert_status 0
-assert_output_contains "Hook merge: added the Guard to .claude/settings.json."
+assert_output_contains "Hook merge: added the Guard and the permission rules to .claude/settings.json."
+assert_output_contains "Hook merge: these rules now run without a prompt: Bash(gh issue comment *), Bash(gh issue edit *)."
 assert_output_contains "4 added, 0 identical, 1 different"
 assert_output_contains "  .claude/settings.json (apart from the Hook merge above)"
 assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
-assert_equal '{"allow":["Bash(ls)"]}' "$(jq -c .permissions "$target/.claude/settings.json")" \
-  "expected permissions to stay as they were"
+assert_equal "[\"Bash(ls)\",$FACTORY_RULES]" "$(jq -c .permissions.allow "$target/.claude/settings.json")" \
+  "expected the Target's own rule first, then each factory rule once"
 assert_equal '{"matcher":"Write","hooks":[{"type":"command","command":"node mine.mjs"}]}' \
   "$(jq -c '.hooks.PreToolUse[0]' "$target/.claude/settings.json")" \
   "expected the Target's own PreToolUse hook to stay first and unchanged"
@@ -572,17 +574,54 @@ run_install "$target"
 before="$(cksum < "$target/.claude/settings.json")"
 run_install "$target"
 assert_status 0
-assert_output_contains "Hook merge: .claude/settings.json already has the Guard."
+assert_output_contains "Hook merge: .claude/settings.json already has the Guard and the permission rules."
+assert_output_lacks "Hook merge: added"
+assert_output_lacks "rules now run without a prompt"
 assert_equal "$before" "$(cksum < "$target/.claude/settings.json")" "expected the second run to change nothing"
 
-begin_case "Hook merge creates hooks when the Target settings have none"
+begin_case "Hook merge creates hooks and permissions when the Target settings have neither"
 add_template_settings
 write_file "$target/.claude/settings.json" '{"model":"opus"}'
 run_install "$target"
 assert_status 0
-assert_output_contains "Hook merge: added the Guard"
+assert_output_contains "Hook merge: added the Guard and the permission rules to .claude/settings.json."
+assert_output_contains "Hook merge: these rules now run without a prompt: Bash(gh issue comment *), Bash(gh issue edit *)."
 assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
+assert_equal "[$FACTORY_RULES]" "$(jq -c .permissions.allow "$target/.claude/settings.json")" \
+  "expected both factory rules"
 assert_equal '"opus"' "$(jq -c .model "$target/.claude/settings.json")" "expected model to stay"
+
+begin_case "Hook merge adds only the permission rules when the Guard is already there"
+add_template_settings
+write_file "$target/.claude/settings.json" "$(jq -c 'del(.permissions)' "$template/.claude/settings.json")"
+run_install "$target"
+assert_status 0
+assert_output_contains "Hook merge: added the permission rules to .claude/settings.json."
+assert_output_contains "Hook merge: these rules now run without a prompt: Bash(gh issue comment *), Bash(gh issue edit *)."
+assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
+assert_equal "[$FACTORY_RULES]" "$(jq -c .permissions.allow "$target/.claude/settings.json")" \
+  "expected both factory rules"
+
+begin_case "Hook merge adds only the Guard when the permission rules are already there"
+add_template_settings
+write_file "$target/.claude/settings.json" "{\"permissions\":{\"allow\":[\"Bash(gh issue edit *)\",\"Bash(ls)\",\"Bash(gh issue comment *)\"]}}"
+run_install "$target"
+assert_status 0
+assert_output_contains "Hook merge: added the Guard to .claude/settings.json."
+assert_output_lacks "rules now run without a prompt"
+assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
+assert_equal '["Bash(gh issue edit *)","Bash(ls)","Bash(gh issue comment *)"]' \
+  "$(jq -c .permissions.allow "$target/.claude/settings.json")" "expected the rules to stay as they were"
+
+begin_case "Hook merge adds only the missing rule and keeps the other permission keys"
+add_template_settings
+write_file "$target/.claude/settings.json" '{"permissions":{"defaultMode":"acceptEdits","deny":["Bash(rm *)"],"allow":["Bash(gh issue comment *)"],"ask":["Bash(git push *)"]}}'
+run_install "$target"
+assert_status 0
+assert_output_contains "Hook merge: this rule now runs without a prompt: Bash(gh issue edit *)."
+assert_equal '{"defaultMode":"acceptEdits","deny":["Bash(rm *)"],"allow":["Bash(gh issue comment *)","Bash(gh issue edit *)"],"ask":["Bash(git push *)"]}' \
+  "$(jq -c .permissions "$target/.claude/settings.json")" \
+  "expected only Bash(gh issue edit *) added and every other permission key kept"
 
 begin_case "--force does not Overwrite a different settings.json but Hook merges it"
 add_template_settings
@@ -591,9 +630,9 @@ run_install "$target" --force
 assert_status 0
 assert_output_contains "Done: 4 added, 0 identical, 1 different, 0 overwritten."
 assert_output_lacks "Overwritten ("
-assert_output_contains "Hook merge: added the Guard"
-assert_equal '{"allow":["Bash(ls)"]}' "$(jq -c .permissions "$target/.claude/settings.json")" \
-  "expected permissions to survive --force"
+assert_output_contains "Hook merge: added the Guard and the permission rules"
+assert_equal "[\"Bash(ls)\",$FACTORY_RULES]" "$(jq -c .permissions.allow "$target/.claude/settings.json")" \
+  "expected the Target's own rule to survive --force"
 assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
 
 begin_case "settings.json identical to the Template's is not touched"
@@ -607,7 +646,7 @@ assert_output_contains "4 added, 1 identical, 0 different"
 assert_output_lacks "Hook merge"
 assert_equal "$before" "$(cksum < "$target/.claude/settings.json")" "expected settings.json unchanged"
 
-begin_case "missing jq warns, prints the Guard block and leaves settings.json alone"
+begin_case "missing jq warns, prints the hooks and rules and leaves settings.json alone"
 add_template_settings
 write_file "$target/.claude/settings.json" "$MY_SETTINGS"
 before="$(cksum < "$target/.claude/settings.json")"
@@ -615,9 +654,10 @@ hide_jq
 run_install "$target" --no-protect-main
 assert_status 0
 assert_output_contains "Hook merge: jq was not found"
-assert_output_contains ".claude/settings.json"
+assert_output_contains "Add the hooks and permission rules below to it by hand:"
 assert_output_contains '"PreToolUse"'
 assert_output_contains "factory-guard.sh"
+assert_output_contains '"Bash(gh issue edit *)"'
 assert_output_lacks "Hook merge: added"
 assert_equal "$before" "$(cksum < "$target/.claude/settings.json")" "expected settings.json unchanged"
 assert_content "$target/factory/dashboard.html" "template dashboard"
@@ -629,8 +669,9 @@ before="$(cksum < "$target/.claude/settings.json")"
 run_install "$target"
 assert_status 0
 assert_output_contains "Hook merge: could not merge"
-assert_output_contains ".claude/settings.json"
+assert_output_contains "Add the hooks and permission rules below to it by hand:"
 assert_output_contains "factory-guard.sh"
+assert_output_contains '"Bash(gh issue comment *)"'
 assert_equal "$before" "$(cksum < "$target/.claude/settings.json")" "expected settings.json unchanged"
 
 # --- main protection ----------------------------------------------------------

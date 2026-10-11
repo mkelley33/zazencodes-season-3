@@ -5,7 +5,8 @@
 # every stage label and every command. Also checks the dashboard footer's
 # command list, the agents' heredoc delimiter, the command that reads issue
 # comments, what the README claims for the Guard, and that the README names
-# every flag of the install script and of serve.py.
+# every flag of the install script and of serve.py and every permission rule
+# of the Template settings.
 #
 # Run: bash scripts/docs.test.sh
 #
@@ -88,6 +89,12 @@ case_count=$((case_count + 1))
 for flag in --force --protect-main --no-protect-main --port --repo; do
   grep -qF -- "\`$flag" "$TEMPLATE/README.md" || fail "'$flag' is missing from README.md"
 done
+
+# The README names every permission rule the Template settings allow.
+case_count=$((case_count + 1))
+while IFS= read -r rule; do
+  grep -qF -- "$rule" "$TEMPLATE/README.md" || fail "'$rule' is missing from README.md"
+done < <(jq -r '.permissions.allow[]' "$TEMPLATE/.claude/settings.json")
 
 printf '%s cases, %s failed assertions\n' "$case_count" "$failure_count"
 [ "$failure_count" -eq 0 ]

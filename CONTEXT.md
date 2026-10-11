@@ -82,7 +82,7 @@ The rule that blocks merges, pushes to `main` and commits on `main`, so a Job re
 _Avoid_: Hook, protection
 
 **Hook merge**:
-The Install adding the Guard to a Target's existing settings, leaving everything else in them as it was.
+The Install adding the Guard and the factory's permission rules to a Target's existing settings, leaving everything else in them as it was.
 _Avoid_: Patch
 
 **Clean**:

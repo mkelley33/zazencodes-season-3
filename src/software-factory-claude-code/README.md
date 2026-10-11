@@ -29,7 +29,7 @@ yours.
     reviewer-code.md             sonnet  posts the round-N code review
     approver.md                  opus    posts the decision comment
   hooks/factory-guard.sh         the Guard: blocks merges and pushes to main
-  settings.json                  runs the Guard before every Bash call
+  settings.json                  runs the Guard, allows the factory's gh issue comment and gh issue edit
 factory/
   dashboard.html                 the visual board
   serve.py                       serves the board and reads GitHub through gh
@@ -93,19 +93,53 @@ GitHub branch protection, which Install sets unless you pass
 `--no-protect-main`.
 
 If you copy the folder by hand into a repo that already has its own
-`.claude/settings.json`, keep yours and add the `PreToolUse` entry from the
-template's `settings.json` to it by hand.
+`.claude/settings.json`, keep yours and add the `PreToolUse` entry and the
+`permissions.allow` entries from the template's `settings.json` to it by hand.
+
+## Permissions
+
+The factory needs two commands to run without asking: every agent posts its
+comment with `gh issue comment`, and the orchestrator moves the stage label
+with `gh issue edit`. The template's `.claude/settings.json` allows exactly
+those two command prefixes, `Bash(gh issue comment *)` and
+`Bash(gh issue edit *)`, and the Install adds them to your own settings
+through the Hook merge. It names each rule it adds.
+
+Those rules match any arguments. Without a prompt, any agent can post any
+text as a comment, or any file it can read (`--body-file <path>`), and edit
+any issue's title, body or labels, in any repo your `gh` login can reach.
+Deleting a posted comment does not unpublish it, since GitHub has already
+notified the issue's watchers, so a leaked secret stays leaked. The
+agents read every comment on the issue, and on a public repo anyone can
+comment, so treat other users' comments as untrusted input. To opt out,
+delete the two entries from `permissions.allow`. You then answer those
+prompts again, and a missing decision still ends in `factory:needs-human` as
+described below.
+
+Everything else is left to your session's permission mode: the builder's
+commits and your repo's test commands, `gh issue create`, `gh label create`,
+`gh api`, `git push`, `gh pr create`, and spawning agents. In default mode you
+answer those prompts as they come up.
+
+These rules do not guarantee an unattended run. In auto mode the classifier
+can still deny an action it reads as an agent approving its own work
+(`[Self-Approval]`), including the approver's decision comment or spawning the
+approver at all. The job then goes to `factory:needs-human` with no decision
+comment. Check the round's reviews on the issue, then run
+`/factory approve <job-id>` to open the pull request, or
+`/factory rework <job-id> <note>` to send it back to the builder.
 
 ## Use it in your repo
 
 1. Copy `.claude/` and `factory/` into your repo root. Or, from the repo this
    template comes from, run `bash scripts/install-software-factory.sh`: it
    asks for the Target path, copies only what your repo is missing, adds the
-   Guard to your existing `.claude/settings.json` (a Hook merge), and by
-   default (`--protect-main`) protects `main` on GitHub: a pull request is
-   required, force pushes and deletion are refused. Pass `--no-protect-main`
-   to skip that step. The Hook merge needs `jq`; without it the settings file
-   is left as it is and the hook block is printed for you to add by hand.
+   Guard and the factory's permission rules to your existing
+   `.claude/settings.json` (a Hook merge), and by default (`--protect-main`)
+   protects `main` on GitHub: a pull request is required, force pushes and
+   deletion are refused. Pass `--no-protect-main` to skip that step. The Hook
+   merge needs `jq`; without it the settings file is left as it is and the
+   hooks and permission rules are printed for you to add by hand.
    Pass `--force` to overwrite the Template files that differ in your repo
    (each different Skip that is a regular file becomes an Overwrite).
    Directories, symlinks and your `.claude/settings.json` are never

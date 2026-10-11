@@ -66,7 +66,7 @@ writer of the job's stage label and state comment.
   skills/factory/SKILL.md          # the orchestrator's procedure
   agents/                          # one file per agent in the loop
   hooks/factory-guard.sh           # the Guard: blocks merges and pushes to main
-  settings.json                    # runs the Guard before every Bash call
+  settings.json                    # runs the Guard, allows the factory's gh issue comment and gh issue edit
 factory/
   dashboard.html                   # visual board of the factory's issues
   serve.py                         # serves the board, reads GitHub through gh
@@ -99,6 +99,8 @@ one worktree under `.claude/worktrees/` on a `factory/<job-id>` branch.
   with SendMessage for each new round.
 - The factory never merges. APPROVE, or a human's /factory approve, opens a
   pull request whose body says `Closes #<n>`; a human merges it on GitHub.
+- An approver that posts no decision sends the job to `factory:needs-human`,
+  where a human's /factory approve or /factory rework takes over.
 - The Guard enforces that: it blocks `git merge`, `gh pr merge`, pushes to
   main, force pushes, `git branch -D` and commits on main. Branch protection on
   main backs it up on GitHub.
