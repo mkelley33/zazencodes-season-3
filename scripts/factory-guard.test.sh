@@ -184,6 +184,30 @@ begin_case "git commit after cd into a quoted path on main is blocked"
 run_guard "cd \"$ON_MAIN\" && git add a.txt && git commit -m x" "$ON_JOB"
 assert_blocked
 
+begin_case "git global options before the subcommand do not hide it"
+for command in "git -C /x merge y" "git -C /x push origin main" "git -c a=b push --force" \
+  "git --no-pager merge y" "git --git-dir=/x/.git --work-tree /x merge y" "git -C \"/a b\" merge y"; do
+  run_guard "$command"
+  assert_blocked
+done
+
+begin_case "assignments, env and command before git do not hide it"
+for command in "FOO=1 git merge x" "env git merge x" "command git push origin main" "A=1 B=2 git branch -D x"; do
+  run_guard "$command"
+  assert_blocked
+done
+
+begin_case "combined short flags are blocked"
+for command in "git push -fu origin factory/1-a" "git push -uf origin factory/1-a" "git branch -df factory/1-a" "git branch -Dq factory/1-a"; do
+  run_guard "$command"
+  assert_blocked
+done
+
+begin_case "git -C into a repo on main before commit is blocked"
+run_guard "git -C $ON_MAIN commit -m x" "$ON_JOB"
+assert_blocked
+assert_stderr_contains "git commit on main"
+
 begin_case "a blocked command on a later line is blocked"
 run_guard "git status
 git merge factory/1-a"
@@ -214,6 +238,22 @@ assert_allowed
 
 begin_case "git merge-base is allowed"
 run_guard "git merge-base main HEAD"
+assert_allowed
+
+begin_case "git merge-base with global options is allowed"
+run_guard "git -C /x merge-base main HEAD"
+assert_allowed
+
+begin_case "git -C into a repo on a job branch before commit is allowed"
+run_guard "git -C $ON_JOB commit -m x" "$ON_MAIN"
+assert_allowed
+
+begin_case "git branch -f without delete is allowed"
+run_guard "git branch -f factory/1-a HEAD"
+assert_allowed
+
+begin_case "git push with a long option containing f is allowed"
+run_guard "git push --follow-tags -u origin factory/1-a"
 assert_allowed
 
 begin_case "git mergetool is allowed"

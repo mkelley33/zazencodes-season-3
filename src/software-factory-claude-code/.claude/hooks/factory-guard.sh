@@ -6,14 +6,17 @@
 #   - git merge                       (git merge-base, merge-tree, mergetool pass)
 #   - gh pr merge
 #   - git push to main                (main, +main, :main, <x>:main, refs/heads/main)
-#   - git push --force, -f, --force-with-lease[=<...>]
-#   - git branch -D, git branch --delete --force
+#   - git push --force, -f, -<flags with f>, --force-with-lease[=<...>]
+#   - git branch -D, -<flags with D>, git branch --delete --force
 #   - git commit while the branch is main, read in the directory the earlier
-#     `cd <dir>`s in the command lead to from the session's cwd
+#     `cd <dir>`s and the commit's own `git -C <dir>`s lead to from the
+#     session's cwd
 #
 # A command matches only at a command boundary: the start of the string, or
-# after &&, ||, ;, |, ( or a newline outside quotes. Heredoc bodies are skipped,
-# so a review comment that quotes `git push --force` passes.
+# after &&, ||, ;, |, ( or a newline outside quotes. NAME=value assignments,
+# `env`, `command` and git's global options (-C <dir>, -c <x>, --no-pager, ...)
+# before the subcommand are skipped. Heredoc bodies are skipped, so a review
+# comment that quotes `git push --force` passes.
 #
 # Reads the hook JSON on stdin. Exit 2 blocks the call and the one stderr line
 # tells the agent why. Exit 0 allows it. Input it cannot parse is allowed:
@@ -121,37 +124,108 @@ end_segment
 
 # --- check each simple command -----------------------------------------------
 
+word_re="^[^\"'$bs "$'\t\n'"]+" # a run of characters inside one unquoted word
+quoted_re="^[^\"'$bs]+"            # a run of characters inside quotes
+
+# Splits simple command $1 into $words the way the shell would, with quotes
+# and backslashes removed.
+split_words() {
+  local s="$1" word="" quote="" in_word=false c i=0 n=${#1}
+  words=()
+  while [ "$i" -lt "$n" ]; do
+    if { [ -z "$quote" ] && [[ ${s:i} =~ $word_re ]]; } \
+      || { [ -n "$quote" ] && [[ ${s:i} =~ $quoted_re ]]; }; then
+      word="$word${BASH_REMATCH[0]}"
+      in_word=true
+      i=$((i + ${#BASH_REMATCH[0]}))
+      continue
+    fi
+    c="${s:i:1}"
+    if [ -n "$quote" ]; then
+      if [ "$c" = "$quote" ]; then
+        quote=""
+      elif [ "$quote" = '"' ] && [ "$c" = "$bs" ]; then
+        i=$((i + 1))
+        word="$word${s:i:1}"
+      else
+        word="$word$c"
+      fi
+    else
+      case "$c" in
+        "'" | '"') quote="$c"; in_word=true ;;
+        "$bs") i=$((i + 1)); word="$word${s:i:1}"; in_word=true ;;
+        *)
+          [ "$in_word" = true ] && words[${#words[@]}]="$word"
+          word=""
+          in_word=false
+          ;;
+      esac
+    fi
+    i=$((i + 1))
+  done
+  [ "$in_word" = true ] && words[${#words[@]}]="$word"
+}
+
+# Prints directory $1 with a leading ~ expanded.
+expand_dir() {
+  case "$1" in
+    "~") printf '%s' "$HOME" ;;
+    "~/"*) printf '%s' "$HOME/${1#\~/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 cd_args=()
 
 for segment in "${segments[@]}"; do
-  words=()
-  read -r -a words <<< "$segment"
-  [ "${#words[@]}" -gt 0 ] || continue
+  split_words "$segment"
 
-  case "${words[0]} ${words[1]:-}" in
+  # NAME=value assignments and the env and command wrappers come first.
+  w=0
+  while [ "$w" -lt "${#words[@]}" ]; do
+    case "${words[w]}" in
+      command | env | [A-Za-z_]*=*) w=$((w + 1)) ;;
+      *) break ;;
+    esac
+  done
+  [ "$w" -lt "${#words[@]}" ] || continue
+  program="${words[w]}"
+  w=$((w + 1))
+
+  # git's global options come before the subcommand: git -C <dir> merge.
+  git_dirs=()
+  if [ "$program" = git ]; then
+    while [ "$w" -lt "${#words[@]}" ]; do
+      case "${words[w]}" in
+        -C)
+          git_dirs[${#git_dirs[@]}]="$(expand_dir "${words[w + 1]:-}")"
+          w=$((w + 2))
+          ;;
+        -c | --git-dir | --work-tree | --namespace | --config-env | --attr-source) w=$((w + 2)) ;;
+        -*) w=$((w + 1)) ;;
+        *) break ;;
+      esac
+    done
+  fi
+  subcommand="${words[w]:-}"
+  args=("${words[@]:w+1}")
+
+  case "$program $subcommand" in
     "cd "?*)
-      dir="${segment#*cd}"
-      dir="${dir#"${dir%%[![:space:]]*}"}"
-      dir="${dir%"${dir##*[![:space:]]}"}"
-      case "$dir" in
-        \"*\" | \'*\') dir="${dir:1:${#dir}-2}" ;;
-      esac
-      case "$dir" in
-        "~") dir="$HOME" ;;
-        "~/"*) dir="$HOME/${dir#\~/}" ;;
-      esac
-      [ "$dir" = "-" ] || cd_args[${#cd_args[@]}]="$dir"
+      [ "$subcommand" = "-" ] || cd_args[${#cd_args[@]}]="$(expand_dir "$subcommand")"
       ;;
     "git merge")
       block "git merge"
       ;;
     "gh pr")
-      [ "${words[2]:-}" = merge ] && block "gh pr merge"
+      [ "${args[0]:-}" = merge ] && block "gh pr merge"
       ;;
     "git push")
-      for word in "${words[@]:2}"; do
+      for word in ${args[@]+"${args[@]}"}; do
         case "$word" in
-          --force | -f | --force-with-lease | --force-with-lease=*) block "git push --force" ;;
+          --force | --force-with-lease | --force-with-lease=*) block "git push --force" ;;
+          --*) ;;
+          -*f*) block "git push --force" ;;
           -*) ;;
           *)
             ref="${word#+}"
@@ -164,18 +238,23 @@ for segment in "${segments[@]}"; do
     "git branch")
       delete=false
       force=false
-      for word in "${words[@]:2}"; do
+      for word in ${args[@]+"${args[@]}"}; do
         case "$word" in
-          -D) block "git branch -D" ;;
-          -d | --delete) delete=true ;;
-          -f | --force) force=true ;;
+          --delete) delete=true ;;
+          --force) force=true ;;
+          --*) ;;
+          -*D*) block "git branch -D" ;;
+          -*)
+            case "$word" in *d*) delete=true ;; esac
+            case "$word" in *f*) force=true ;; esac
+            ;;
         esac
       done
       [ "$delete" = true ] && [ "$force" = true ] && block "git branch -D"
       ;;
     "git commit")
       git_args=(-C "$cwd")
-      for dir in ${cd_args[@]+"${cd_args[@]}"}; do
+      for dir in ${cd_args[@]+"${cd_args[@]}"} ${git_dirs[@]+"${git_dirs[@]}"}; do
         git_args[${#git_args[@]}]=-C
         git_args[${#git_args[@]}]="$dir"
       done
