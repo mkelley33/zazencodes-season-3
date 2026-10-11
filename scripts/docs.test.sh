@@ -73,7 +73,8 @@ done
 check "confirms its comment landed"
 
 # Every agent file has that section, with the command that prints each
-# comment's URL and first two lines.
+# comment's URL and first two lines, and the rule that a denied or failed post
+# is never retried.
 case_count=$((case_count + 1))
 for agent in spec-writer builder reviewer-security reviewer-ux reviewer-ui reviewer-code approver; do
   file=".claude/agents/$agent.md"
@@ -81,6 +82,8 @@ for agent in spec-writer builder reviewer-security reviewer-ux reviewer-ui revie
     || fail "$file has no '## Confirm the comment landed' section"
   grep -qF -- '"=== comment \(.url)' "$TEMPLATE/$file" \
     || fail "$file does not re-read comments with their URLs"
+  grep -qF -- "Do not retry a denied or failed post" "$TEMPLATE/$file" \
+    || fail "$file does not say a denied or failed post is not retried"
 done
 
 # gh issue view rejects --comments together with --json.
