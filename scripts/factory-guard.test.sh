@@ -348,6 +348,16 @@ git merge factory/1-a
 EOF"
 assert_allowed
 
+begin_case "an agent's FACTORY_COMMENT heredoc that quotes EOF and blocked commands is allowed"
+run_guard "gh issue comment 7 --body-file - <<'FACTORY_COMMENT'
+## round-1 review-security
+VERDICT: CHANGES
+
+EOF
+git merge factory/1-a
+FACTORY_COMMENT"
+assert_allowed
+
 begin_case "a heredoc inside a command substitution is allowed"
 run_guard "git commit -m \"\$(cat <<'EOF'
 fix: say \"why\"

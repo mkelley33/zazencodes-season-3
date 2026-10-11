@@ -56,11 +56,11 @@ that. Pick comments by heading. The latest comment with a heading wins.
 Post it from a heredoc, so nothing is written to disk:
 
 ```bash
-gh issue comment <n> --body-file - <<'EOF'
+gh issue comment <n> --body-file - <<'FACTORY_COMMENT'
 ## round-<N> review-security
 VERDICT: PASS
 ...
-EOF
+FACTORY_COMMENT
 ```
 
 ```markdown

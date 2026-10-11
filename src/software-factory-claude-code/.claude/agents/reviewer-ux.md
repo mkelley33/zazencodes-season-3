@@ -62,11 +62,11 @@ If the branch has no user-facing change, write PASS and say so.
 Post it from a heredoc, so nothing is written to disk:
 
 ```bash
-gh issue comment <n> --body-file - <<'EOF'
+gh issue comment <n> --body-file - <<'FACTORY_COMMENT'
 ## round-<N> review-ux
 VERDICT: PASS
 ...
-EOF
+FACTORY_COMMENT
 ```
 
 ```markdown

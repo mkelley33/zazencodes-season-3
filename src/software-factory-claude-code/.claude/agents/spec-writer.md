@@ -32,13 +32,13 @@ there.
 Post it from a heredoc, so nothing is written to disk:
 
 ```bash
-gh issue comment <n> --body-file - <<'EOF'
+gh issue comment <n> --body-file - <<'FACTORY_COMMENT'
 ## spec
 Surface: page
 
 # <short title>
 ...
-EOF
+FACTORY_COMMENT
 ```
 
 The first line must be exactly `## spec` and the second line exactly

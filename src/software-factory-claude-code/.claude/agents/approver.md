@@ -62,11 +62,11 @@ ESCALATE if any of them fails, or if the change:
 Post it from a heredoc, so nothing is written to disk:
 
 ```bash
-gh issue comment <n> --body-file - <<'EOF'
+gh issue comment <n> --body-file - <<'FACTORY_COMMENT'
 ## decision round-<N>
 APPROVE
 ...
-EOF
+FACTORY_COMMENT
 ```
 
 ```markdown
