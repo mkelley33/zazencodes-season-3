@@ -12,11 +12,13 @@
 # takes the worktree and branch from the latest `## state` comment and runs
 # `git worktree remove` and `git branch -d`, never their forcing forms, so a
 # worktree with uncommitted changes or an unmerged branch is reported and
-# kept. Issue comments can come from anyone with access to the repo, so only
+# kept. Issue comments can come from anyone who can comment on the repo, so
+# the PR must be in this repo with the state's branch as its head, and only
 # factory/ branches and worktrees under <repo>/.claude/worktrees/ are touched.
 #
 # Prints one line per issue: `removed #<n>: ...`, `would remove #<n>: ...` or
-# `skip #<n>: <reason>`. Exits non-zero only when the issues cannot be listed.
+# `skip #<n>: <reason>`. Exits non-zero only when the repo or its issues
+# cannot be read.
 # Needs git and gh; gh's built-in --jq reads the JSON.
 
 set -uo pipefail
@@ -32,6 +34,7 @@ case "$#:${1:-}" in
 esac
 
 repo="$(git rev-parse --show-toplevel)" || exit 1
+repo_url="$(gh repo view --json url -q .url)" || exit 1
 worktrees_dir="$repo/.claude/worktrees/"
 sep=$'\037'
 
@@ -58,16 +61,23 @@ last_line() {
 # Cleans the job of issue $1, whose PR URL is $2, worktree $3 and branch $4.
 clean_job() {
   local number="$1" pr_url="$2" worktree="$3" branch="$4"
-  local merged_at errors done_what="" verb="removed"
+  local pr merged_at head errors done_what="" verb="removed"
 
-  case "$pr_url" in
-    https://*) ;;
-    *) printf 'skip #%s: no ## pr comment\n' "$number"; return ;;
-  esac
-  if ! merged_at="$(gh pr view "$pr_url" --json mergedAt --jq '.mergedAt // ""' 2>&1)"; then
-    printf 'skip #%s: could not read %s: %s\n' "$number" "$pr_url" "$(last_line "$merged_at")"
+  if [ -z "$pr_url" ]; then
+    printf 'skip #%s: no ## pr comment\n' "$number"
     return
   fi
+  case "$pr_url" in
+    "$repo_url/pull/"[0-9]*) ;;
+    *) printf 'skip #%s: pull request %s is not in %s\n' "$number" "$pr_url" "$repo_url"; return ;;
+  esac
+  if ! pr="$(gh pr view "$pr_url" --json mergedAt,headRefName \
+    --jq '"\(.mergedAt // "")\u001f\(.headRefName)"' 2>&1)"; then
+    printf 'skip #%s: could not read %s: %s\n' "$number" "$pr_url" "$(last_line "$pr")"
+    return
+  fi
+  merged_at="${pr%%"$sep"*}"
+  head="${pr#*"$sep"}"
   if [ -z "$merged_at" ]; then
     printf 'skip #%s: pull request not merged: %s\n' "$number" "$pr_url"
     return
@@ -80,6 +90,10 @@ clean_job() {
     factory/?*) ;;
     *) printf 'skip #%s: branch %s is not a factory/ branch\n' "$number" "$branch"; return ;;
   esac
+  if [ "$head" != "$branch" ]; then
+    printf 'skip #%s: pull request head %s is not branch %s\n' "$number" "$head" "$branch"
+    return
+  fi
   case "$worktree" in
     */../* | */..) printf 'skip #%s: worktree %s is not under %s\n' "$number" "$worktree" "$worktrees_dir"; return ;;
     "$worktrees_dir"?*) ;;

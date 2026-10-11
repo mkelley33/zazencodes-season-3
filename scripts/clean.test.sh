@@ -66,6 +66,7 @@ case "\$1 \$2" in
     data="\$(/usr/bin/jq -s . "$case_dir"/issues/*.json 2> /dev/null || printf '[]')"
     ;;
   "pr view") data="\$(cat "$case_dir/gh/pr-\${3##*/}.json")" || exit 1 ;;
+  "repo view") data='{"url":"https://github.com/octo/repo"}' ;;
   *) exit 1 ;;
 esac
 if [ -n "\$filter" ]; then printf '%s' "\$data" | /usr/bin/jq -r "\$filter"; else printf '%s\n' "\$data"; fi
@@ -92,9 +93,9 @@ add_issue() {
 }
 
 # Makes the fake gh answer `gh pr view <url ending in $1>` with mergedAt $2
-# (JSON: a quoted timestamp or null).
+# (JSON: a quoted timestamp or null) and head branch $3.
 pr_merged_at() {
-  printf '{"mergedAt":%s}\n' "$2" > "$case_dir/gh/pr-$1.json"
+  printf '{"mergedAt":%s,"headRefName":"%s"}\n' "$2" "$3" > "$case_dir/gh/pr-$1.json"
 }
 
 # Adds a worktree on branch $2 at $1, branched from main.
@@ -162,7 +163,7 @@ begin_case "merged job: worktree and branch removed"
 worktree="$repo/.claude/worktrees/factory-1-a"
 add_worktree "$worktree" factory/1-a
 add_issue 1 "https://github.com/octo/repo/pull/7" "$worktree" factory/1-a
-pr_merged_at 7 '"2026-10-10T12:00:00Z"'
+pr_merged_at 7 '"2026-10-10T12:00:00Z"' factory/1-a
 run_clean
 assert_status 0
 assert_output_contains "removed #1: worktree $worktree, branch factory/1-a"
@@ -170,14 +171,14 @@ assert_worktree_removed "$worktree"
 assert_branch_removed factory/1-a
 grep -q "^issue list --label factory --state closed -L 500 --json number,comments" "$call_log" \
   || fail "expected the closed factory issues to be listed. gh calls: $(cat "$call_log")"
-grep -q "^pr view https://github.com/octo/repo/pull/7 --json mergedAt" "$call_log" \
+grep -q "^pr view https://github.com/octo/repo/pull/7 --json mergedAt,headRefName" "$call_log" \
   || fail "expected the PR to be read. gh calls: $(cat "$call_log")"
 
 begin_case "unmerged PR: skipped, nothing removed"
 worktree="$repo/.claude/worktrees/factory-2-b"
 add_worktree "$worktree" factory/2-b
 add_issue 2 "https://github.com/octo/repo/pull/8" "$worktree" factory/2-b
-pr_merged_at 8 null
+pr_merged_at 8 null factory/2-b
 run_clean
 assert_status 0
 assert_output_contains "skip #2: pull request not merged"
@@ -189,7 +190,7 @@ worktree="$repo/.claude/worktrees/factory-3-c"
 add_worktree "$worktree" factory/3-c
 printf 'unsaved\n' > "$worktree/notes.txt"
 add_issue 3 "https://github.com/octo/repo/pull/9" "$worktree" factory/3-c
-pr_merged_at 9 '"2026-10-10T12:00:00Z"'
+pr_merged_at 9 '"2026-10-10T12:00:00Z"' factory/3-c
 run_clean
 assert_status 0
 assert_output_contains "skip #3: git worktree remove refused:"
@@ -203,7 +204,7 @@ begin_case "--dry-run removes nothing and prints would remove"
 worktree="$repo/.claude/worktrees/factory-4-d"
 add_worktree "$worktree" factory/4-d
 add_issue 4 "https://github.com/octo/repo/pull/10" "$worktree" factory/4-d
-pr_merged_at 10 '"2026-10-10T12:00:00Z"'
+pr_merged_at 10 '"2026-10-10T12:00:00Z"' factory/4-d
 run_clean --dry-run
 assert_status 0
 assert_output_contains "would remove #4: worktree $worktree, branch factory/4-d"
@@ -214,7 +215,7 @@ assert_branch_kept factory/4-d
 begin_case "worktree already gone, branch present: branch removed"
 git -C "$repo" branch factory/5-e
 add_issue 5 "https://github.com/octo/repo/pull/11" "$repo/.claude/worktrees/factory-5-e" factory/5-e
-pr_merged_at 11 '"2026-10-10T12:00:00Z"'
+pr_merged_at 11 '"2026-10-10T12:00:00Z"' factory/5-e
 run_clean
 assert_status 0
 assert_output_contains "removed #5: branch factory/5-e"
@@ -223,7 +224,7 @@ assert_branch_removed factory/5-e
 
 begin_case "worktree and branch both gone: already clean"
 add_issue 6 "https://github.com/octo/repo/pull/12" "$repo/.claude/worktrees/factory-6-f" factory/6-f
-pr_merged_at 12 '"2026-10-10T12:00:00Z"'
+pr_merged_at 12 '"2026-10-10T12:00:00Z"' factory/6-f
 run_clean
 assert_status 0
 assert_output_contains "skip #6: already clean"
@@ -232,7 +233,7 @@ begin_case "worktree outside .claude/worktrees/: skipped"
 worktree="$case_dir/elsewhere"
 add_worktree "$worktree" factory/7-g
 add_issue 7 "https://github.com/octo/repo/pull/13" "$worktree" factory/7-g
-pr_merged_at 13 '"2026-10-10T12:00:00Z"'
+pr_merged_at 13 '"2026-10-10T12:00:00Z"' factory/7-g
 run_clean
 assert_status 0
 assert_output_contains "skip #7: worktree $worktree is not under $repo/.claude/worktrees/"
@@ -243,7 +244,7 @@ begin_case "worktree path that climbs out with ..: skipped"
 worktree="$case_dir/elsewhere"
 add_worktree "$worktree" factory/8-h
 add_issue 8 "https://github.com/octo/repo/pull/14" "$repo/.claude/worktrees/../../elsewhere" factory/8-h
-pr_merged_at 14 '"2026-10-10T12:00:00Z"'
+pr_merged_at 14 '"2026-10-10T12:00:00Z"' factory/8-h
 run_clean
 assert_status 0
 assert_output_contains "skip #8: worktree"
@@ -254,7 +255,7 @@ begin_case "branch outside factory/: skipped"
 worktree="$repo/.claude/worktrees/feature-x"
 add_worktree "$worktree" feature/x
 add_issue 9 "https://github.com/octo/repo/pull/15" "$worktree" feature/x
-pr_merged_at 15 '"2026-10-10T12:00:00Z"'
+pr_merged_at 15 '"2026-10-10T12:00:00Z"' feature/x
 run_clean
 assert_status 0
 assert_output_contains "skip #9: branch feature/x is not a factory/ branch"
@@ -271,11 +272,33 @@ assert_output_contains "skip #10: no ## pr comment"
 assert_worktree_kept "$worktree"
 assert_branch_kept factory/10-i
 
+begin_case "pull request in another repo: skipped"
+worktree="$repo/.claude/worktrees/factory-13-l"
+add_worktree "$worktree" factory/13-l
+add_issue 13 "https://github.com/someone/else/pull/17" "$worktree" factory/13-l
+pr_merged_at 17 '"2026-10-10T12:00:00Z"' factory/13-l
+run_clean
+assert_status 0
+assert_output_contains "skip #13: pull request https://github.com/someone/else/pull/17 is not in https://github.com/octo/repo"
+assert_worktree_kept "$worktree"
+assert_branch_kept factory/13-l
+
+begin_case "pull request whose head is another branch: skipped"
+worktree="$repo/.claude/worktrees/factory-14-m"
+add_worktree "$worktree" factory/14-m
+add_issue 14 "https://github.com/octo/repo/pull/18" "$worktree" factory/14-m
+pr_merged_at 18 '"2026-10-10T12:00:00Z"' factory/99-other
+run_clean
+assert_status 0
+assert_output_contains "skip #14: pull request head factory/99-other is not branch factory/14-m"
+assert_worktree_kept "$worktree"
+assert_branch_kept factory/14-m
+
 begin_case "every issue gets one line"
 worktree="$repo/.claude/worktrees/factory-11-j"
 add_worktree "$worktree" factory/11-j
 add_issue 11 "https://github.com/octo/repo/pull/16" "$worktree" factory/11-j
-pr_merged_at 16 '"2026-10-10T12:00:00Z"'
+pr_merged_at 16 '"2026-10-10T12:00:00Z"' factory/11-j
 add_issue 12 "" "$repo/.claude/worktrees/factory-12-k" factory/12-k
 run_clean
 assert_status 0
