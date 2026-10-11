@@ -91,10 +91,12 @@ one worktree under `.claude/worktrees/` on a `factory/<job-id>` branch.
 - The spec's second line is its Surface: `Surface: page` when the change shows
   on a page, `Surface: none` otherwise. With `none`, the ux and ui reviews are
   skipped reviews: the state comment marks them `skipped` and nobody runs them.
-- After posting, each agent re-reads the issue's comments and
+- After a post that succeeded, each agent re-reads the issue's comments and
   confirms its comment landed, with its heading on line 1 and its status line
   on line 2. If it did not, the agent posts it again once, never a third time.
-  Its final report gives the URL of the comment it confirmed.
+  A post that was denied or failed is never retried and never posted another
+  way. The agent's final report gives the URL of the comment it confirmed, or
+  the full text of the comment that did not land and the reason.
 - The builder works and commits on `factory/<job-id>` in the job's worktree and
   tests against the spec's acceptance criteria.
 - WAIT FOR ALL: a review round is done only when every review that is not

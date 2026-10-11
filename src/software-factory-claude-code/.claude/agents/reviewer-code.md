@@ -88,7 +88,7 @@ Non-blocking observations. Optional.
 
 ## Confirm the comment landed
 
-After you post, re-read the issue's comments:
+When the post succeeds, re-read the issue's comments:
 
 ```bash
 gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.url)\n\(.body | split("\n")[:2] | join("\n"))"'
@@ -100,6 +100,12 @@ whose first line is `## round-<N> review-code`. Its second line must be the
 or either line is wrong, post the comment again once and re-read. Never post a
 third time.
 
-End your final report with the URL of the comment you confirmed. If it still
-has not landed after the retry, say so instead, with the error you saw. Never
-report a comment you did not see in the re-read.
+End your final report with the URL of the comment you confirmed. If the second
+re-read does not show it either, say instead that the comment did not land and
+give its full text. Never report a comment you did not see in the re-read.
+
+Do not retry a denied or failed post, the first or the second. When the
+permission system refuses the `gh issue comment` command, or it exits non-zero,
+do not try another way to post it either: no new file, no other command. End
+your final report with the full text of the comment you meant to post and the
+reason it was not posted.
