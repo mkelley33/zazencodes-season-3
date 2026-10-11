@@ -4,7 +4,8 @@
 # BUILD_PROMPT.md (the shape) and SKILL.md (the procedure). Both must name
 # every stage label and every command. Also checks the dashboard footer's
 # command list, the agents' heredoc delimiter, the command that reads issue
-# comments, and what the README claims for the Guard.
+# comments, what the README claims for the Guard, and that the README names
+# every flag of the install script and of serve.py.
 #
 # Run: bash scripts/docs.test.sh
 #
@@ -79,6 +80,14 @@ case_count=$((case_count + 1))
 if grep -qF -- "only way work reaches" "$TEMPLATE/README.md"; then
   fail "README.md says the Guard makes a pull request the only way work reaches main"
 fi
+
+# The README names every flag of the install script and of serve.py, each at
+# the start of a code span, so `git push --force` in the Guard section does
+# not count as documenting --force.
+case_count=$((case_count + 1))
+for flag in --force --protect-main --no-protect-main --port --repo; do
+  grep -qF -- "\`$flag" "$TEMPLATE/README.md" || fail "'$flag' is missing from README.md"
+done
 
 printf '%s cases, %s failed assertions\n' "$case_count" "$failure_count"
 [ "$failure_count" -eq 0 ]
