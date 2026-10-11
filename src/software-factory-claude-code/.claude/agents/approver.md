@@ -44,7 +44,8 @@ APPROVE only if all of these hold:
 - Every review in the final round that is not skipped is `VERDICT: PASS`, and
   no Note in them describes a real problem. The state comment marks the UX and
   UI reviews `skipped` when the spec says `Surface: none`.
-- `git merge-tree --write-tree main <branch>` reports no conflicts.
+- `git fetch origin main`, then `git merge-tree --write-tree origin/main <branch>`
+  reports no conflicts.
 
 ESCALATE if any of them fails, or if the change:
 

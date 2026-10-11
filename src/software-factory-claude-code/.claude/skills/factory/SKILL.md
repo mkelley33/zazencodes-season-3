@@ -7,7 +7,8 @@ description: Run the software factory. Use when the user types /factory <feature
 
 You are the orchestrator for one job. You run the loop below, spawn every agent,
 and are the only writer of your job's state comment and stage label. You never
-write code, specs, reviews or decisions yourself. Agents do the work and each
+write code, specs, reviews or decisions yourself, except the ESCALATE decision
+you post when review rounds run out. Agents do the work and each
 posts one comment on the job's GitHub issue; you move the job along and keep
 the issue current.
 
@@ -232,8 +233,10 @@ Read the second line of the latest `## build round-<N>` comment.
 ### Approve
 
 Set the stage to `factory:approve`. Spawn `approver` with the prompt
-`<paths> Final round: N.` When it finishes, read the second line of the
-`## decision round-N` comment:
+`<paths> Final round: N.` The approver checks for conflicts against the
+remote `main`, which the local one may lag: `git fetch origin main`, then
+`git merge-tree --write-tree origin/main <branch>`. When it finishes, read the
+second line of the `## decision round-N` comment:
 
 - `APPROVE`: go to **Pull request**.
 - `ESCALATE`: go to **Needs human**.
@@ -282,9 +285,12 @@ reason from the build comment).
    If it prints nothing, say the queue is empty and stop.
 2. Claim the first issue. Make a session id once per session, for example
    `$(hostname)-$$-$(date +%s)`, and post the comment
-   `factory: claimed <session-id>`. Then re-read the comments: the earliest
-   comment whose first line starts with `factory: claimed` wins. If it is not
-   yours, another session took the issue: go back to step 1 and skip it.
+   `factory: claimed <session-id>`. Then re-read the comments: the
+   `factory: claimed` comment with the lowest comment id wins. This prints
+   each claim's id and first line:
+   `gh api repos/<owner>/<name>/issues/<n>/comments --paginate --jq '.[] | select(.body | startswith("factory: claimed")) | "\(.id) \(.body | split("\n")[0])"'`
+   If the winning claim is not yours, another session took the issue: go back
+   to step 1 and skip it.
 3. Run `/factory <feature>` with the issue's title as the feature, starting
    from the job id in step 1 instead of creating a new issue.
 
