@@ -19,8 +19,7 @@ artifact files. Both would have split a job's record over two places.
 - The factory and the dashboard need `gh`, logged in with access to the repo.
 - Reads count against GitHub's API rate limit. The dashboard uses ETags and
   backs off when the limit runs low.
-- Merging is local: the issue closes when the orchestrator merges into the
-  local `main`, which may not have been pushed yet.
+- The factory never merges. A pull request whose body says `Closes #<n>` closes the issue when a human merges it on GitHub.
 - When review rounds run out, each outstanding review opens a new `factory`
   issue that is queued automatically, with no limit on how many generations of
   follow-ups a job can spawn. This was a deliberate choice, not an oversight.
