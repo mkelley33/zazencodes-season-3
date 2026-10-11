@@ -1,6 +1,6 @@
 ---
 name: factory
-description: Run the software factory. Use when the user types /factory <feature>, /factory next, /factory approve <job-id>, or /factory rework <job-id> <note>. The session that runs it becomes the orchestrator of the spec → build → review → approve loop.
+description: Run the software factory. Use when the user types /factory <feature>, /factory next, /factory approve <job-id>, /factory rework <job-id> <note>, or /factory clean. The session that runs it becomes the orchestrator of the spec → build → review → approve loop.
 ---
 
 # Factory
@@ -150,8 +150,10 @@ gets `5100 + 10n`, `reviewer-ux` gets `5101 + 10n` and `reviewer-ui` gets
 
 ## /factory <feature>
 
-1. **Create the job.** Make sure the labels exist, so a fresh repo works on
-   its first run: `gh label create factory --force --color 0E8A16 --description "Software factory job"`,
+1. **Create the job.** Run `bash factory/clean.sh` first and relay its output.
+   If it fails, tell the user why and carry on. Make sure the labels exist, so
+   a fresh repo works on its first run:
+   `gh label create factory --force --color 0E8A16 --description "Software factory job"`,
    then the same for the six stage labels (`factory:spec`, `factory:build`,
    `factory:review`, `factory:approve`, `factory:pr`, `factory:needs-human`).
    Open the issue:
@@ -265,8 +267,7 @@ PR URL on the issue as a comment: `## pr` on line 1, the URL on line 2.
 
 The branch and its worktree stay until the human merges the PR, so a review
 comment on GitHub can be answered with `/factory rework <job-id> <note>`.
-After the PR is merged, the human runs
-`git worktree remove <worktree> && git branch -d factory/<job-id>`.
+After the PR is merged, run `/factory clean`.
 
 If the push or `gh pr create` fails, set the stage to `factory:needs-human`
 and tell the user why. Never force-push.
@@ -280,7 +281,9 @@ reason from the build comment).
 
 ## /factory next
 
-1. List the queue: open `factory` issues with no stage label, oldest first:
+1. Run `bash factory/clean.sh` first and relay its output. If it fails, tell
+   the user why and carry on. List the queue: open `factory` issues with no
+   stage label, oldest first:
    `gh issue list --label factory --state open -L 500 --json number,title,labels,createdAt --jq '[.[] | select(all(.labels[].name; startswith("factory:") | not))] | sort_by(.createdAt) | .[] | "\(.number)\t\(.title)"'`
    If it prints nothing, say the queue is empty and stop.
 2. Claim the first issue. Make a session id once per session, for example
@@ -312,6 +315,13 @@ The job must have the `factory:needs-human` label.
    `<paths> Rework: read the rework-<k> comment and address it, then post the build comment for round N+1. Port: <port>.`
    (`N` is the job's last round.) A rework run gets a fresh `MAX_RESUMES`.
 4. Continue from **Build check**, exactly like a new job.
+
+## /factory clean
+
+Run `bash factory/clean.sh` from the main checkout and relay its output. For
+every closed job whose PR was merged, it removes the job's worktree and
+branch, and it reports and keeps any worktree with uncommitted changes.
+`bash factory/clean.sh --dry-run` only says what it would remove.
 
 ## Reporting
 
