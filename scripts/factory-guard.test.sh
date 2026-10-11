@@ -213,6 +213,13 @@ for command in "/usr/bin/git merge main" "/usr/local/bin/gh pr merge 6"; do
   assert_blocked
 done
 
+begin_case "git push of a + refspec is blocked"
+for command in "git push origin +factory/1-a" "git push origin +HEAD:factory/1-a"; do
+  run_guard "$command"
+  assert_blocked
+  assert_stderr_contains "git push +<ref>"
+done
+
 begin_case "combined short flags are blocked"
 for command in "git push -fu origin factory/1-a" "git push -uf origin factory/1-a" "git branch -df factory/1-a" "git branch -Dq factory/1-a"; do
   run_guard "$command"
@@ -263,6 +270,12 @@ assert_allowed
 begin_case "git merge-base after a shell keyword is allowed"
 run_guard "if true; then git merge-base main HEAD; fi"
 assert_allowed
+
+begin_case "git push of a plain refspec is allowed"
+for command in "git push origin factory/1-a" "git push origin HEAD:factory/1-a"; do
+  run_guard "$command"
+  assert_allowed
+done
 
 begin_case "git -C into a repo on a job branch before commit is allowed"
 run_guard "git -C $ON_JOB commit -m x" "$ON_MAIN"

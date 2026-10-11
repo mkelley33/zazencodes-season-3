@@ -6,7 +6,7 @@
 #   - git merge                       (git merge-base, merge-tree, mergetool pass)
 #   - gh pr merge
 #   - git push to main                (main, +main, :main, <x>:main, refs/heads/main)
-#   - git push --force, -f, -<flags with f>, --force-with-lease[=<...>]
+#   - git push --force, -f, -<flags with f>, --force-with-lease[=<...>], +<ref>
 #   - git branch -D, -<flags with D>, git branch --delete --force
 #   - git commit while the branch is main, read in the directory the earlier
 #     `cd <dir>`s and the commit's own `git -C <dir>`s lead to from the
@@ -235,9 +235,9 @@ for segment in "${segments[@]}"; do
           --*) ;;
           -*f*) block "git push --force" ;;
           -*) ;;
+          +*) block "git push +<ref>" ;;
           *)
-            ref="${word#+}"
-            ref="${ref##*:}"
+            ref="${word##*:}"
             [ "$ref" = main ] || [ "$ref" = refs/heads/main ] && block "git push to main"
             ;;
         esac
