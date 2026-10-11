@@ -294,6 +294,20 @@ assert_output_contains "skip #14: pull request head factory/99-other is not bran
 assert_worktree_kept "$worktree"
 assert_branch_kept factory/14-m
 
+begin_case "worktree checked out on another branch: skipped"
+worktree="$repo/.claude/worktrees/factory-16-o"
+add_worktree "$worktree" factory/16-o
+git -C "$repo" branch factory/15-n
+add_issue 15 "https://github.com/octo/repo/pull/19" "$worktree" factory/15-n
+pr_merged_at 19 '"2026-10-10T12:00:00Z"' factory/15-n
+run_clean
+assert_status 0
+assert_output_contains "skip #15: worktree $worktree is not checked out on branch factory/15-n"
+assert_output_lacks "removed #15"
+assert_worktree_kept "$worktree"
+assert_branch_kept factory/16-o
+assert_branch_kept factory/15-n
+
 begin_case "every issue gets one line"
 worktree="$repo/.claude/worktrees/factory-11-j"
 add_worktree "$worktree" factory/11-j

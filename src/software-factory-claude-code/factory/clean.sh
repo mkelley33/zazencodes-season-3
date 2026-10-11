@@ -13,8 +13,9 @@
 # `git worktree remove` and `git branch -d`, never their forcing forms, so a
 # worktree with uncommitted changes or an unmerged branch is reported and
 # kept. Issue comments can come from anyone who can comment on the repo, so
-# the PR must be in this repo with the state's branch as its head, and only
-# factory/ branches and worktrees under <repo>/.claude/worktrees/ are touched.
+# the PR must be in this repo with the state's branch as its head, the
+# worktree must have that branch checked out, and only factory/ branches and
+# worktrees under <repo>/.claude/worktrees/ are touched.
 #
 # Prints one line per issue: `removed #<n>: ...`, `would remove #<n>: ...` or
 # `skip #<n>: <reason>`. Exits non-zero only when the repo or its issues
@@ -62,6 +63,7 @@ last_line() {
 clean_job() {
   local number="$1" pr_url="$2" worktree="$3" branch="$4"
   local pr merged_at head errors done_what="" verb="removed"
+  local line registered=false checked_out=""
 
   if [ -z "$pr_url" ]; then
     printf 'skip #%s: no ## pr comment\n' "$number"
@@ -100,9 +102,23 @@ clean_job() {
     *) printf 'skip #%s: worktree %s is not under %s\n' "$number" "$worktree" "$worktrees_dir"; return ;;
   esac
 
+  # The worktree's block in `git worktree list --porcelain`, if registered,
+  # says which branch it has checked out.
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree $worktree") registered=true ;;
+      "") [ "$registered" = true ] && break ;;
+      "branch refs/heads/"*) [ "$registered" = true ] && checked_out="${line#branch refs/heads/}" ;;
+    esac
+  done < <(git worktree list --porcelain)
+  if [ "$registered" = true ] && [ "$checked_out" != "$branch" ]; then
+    printf 'skip #%s: worktree %s is not checked out on branch %s\n' "$number" "$worktree" "$branch"
+    return
+  fi
+
   [ "$dry_run" = true ] && verb="would remove"
 
-  if git worktree list --porcelain | grep -qxF "worktree $worktree"; then
+  if [ "$registered" = true ]; then
     if [ "$dry_run" = false ] && ! errors="$(git worktree remove "$worktree" 2>&1)"; then
       printf 'skip #%s: git worktree remove refused: %s\n' "$number" "$(last_line "$errors")"
       return
