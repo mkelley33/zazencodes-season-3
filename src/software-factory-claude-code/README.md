@@ -84,10 +84,12 @@ and a session will pick it up. `/factory next` and `/factory <feature>` run
 
 `.claude/hooks/factory-guard.sh` runs before every Bash command an agent or
 the orchestrator runs, through the hook in `.claude/settings.json`. It blocks
-`git merge`, `gh pr merge`, pushes to `main`, force pushes, `git branch -D`
-and commits on `main`, so the only way work reaches `main` is a pull request
-you merge. Text inside quotes or a heredoc, such as a review that quotes
-`git push --force`, passes.
+the common forms of `git merge`, `gh pr merge`, pushes to `main`, force
+pushes, `git branch -D` and commits on `main`, and allows any command it
+cannot parse. Text inside quotes or a heredoc, such as a review that quotes
+`git push --force`, passes. What stops direct pushes to the remote `main` is
+GitHub branch protection, which Install sets unless you pass
+`--no-protect-main`.
 
 If you copy the folder by hand into a repo that already has its own
 `.claude/settings.json`, keep yours and add the `PreToolUse` entry from the
