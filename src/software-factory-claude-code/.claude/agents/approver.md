@@ -1,7 +1,7 @@
 ---
 name: approver
 description: Factory final gate. After a review round with all PASS, decides whether a job branch gets a pull request to main (APPROVE) or goes to a human (ESCALATE), and posts the `## decision round-<N>` comment.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash
 model: opus
 ---
 
@@ -57,9 +57,15 @@ ESCALATE if any of them fails, or if the change:
 
 ## Post the decision
 
-Compose it in a scratch file outside the worktree and the main checkout, such
-as `$TMPDIR/factory-<job-id>-decision.md`, then post it with
-`gh issue comment <n> -F <file>`.
+Post it from a heredoc, so nothing is written to disk:
+
+```bash
+gh issue comment <n> --body-file - <<'EOF'
+## decision round-<N>
+APPROVE
+...
+EOF
+```
 
 ```markdown
 ## decision round-<N>

@@ -1,7 +1,7 @@
 ---
 name: reviewer-code
 description: Factory review lens. Reviews a job branch for correctness, simplicity and repo conventions and posts the `## round-<N> review-code` comment.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
 
@@ -56,9 +56,15 @@ mode that rewrites files, such as `--fix`.
 
 ## Post the review
 
-Compose it in a scratch file outside the worktree and the main checkout, such
-as `$TMPDIR/factory-<job-id>-review-code-<N>.md`, then post it with
-`gh issue comment <n> -F <file>`.
+Post it from a heredoc, so nothing is written to disk:
+
+```bash
+gh issue comment <n> --body-file - <<'EOF'
+## round-<N> review-code
+VERDICT: PASS
+...
+EOF
+```
 
 ```markdown
 ## round-<N> review-code

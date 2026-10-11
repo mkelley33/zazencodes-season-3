@@ -1,7 +1,7 @@
 ---
 name: reviewer-security
 description: Factory review lens. Reviews a job branch for security issues and posts the `## round-<N> review-security` comment.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash
 model: opus
 ---
 
@@ -53,9 +53,15 @@ that. Pick comments by heading. The latest comment with a heading wins.
 
 ## Post the review
 
-Compose it in a scratch file outside the worktree and the main checkout, such
-as `$TMPDIR/factory-<job-id>-review-security-<N>.md`, then post it with
-`gh issue comment <n> -F <file>`.
+Post it from a heredoc, so nothing is written to disk:
+
+```bash
+gh issue comment <n> --body-file - <<'EOF'
+## round-<N> review-security
+VERDICT: PASS
+...
+EOF
+```
 
 ```markdown
 ## round-<N> review-security

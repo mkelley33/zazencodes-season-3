@@ -1,7 +1,7 @@
 ---
 name: reviewer-ux
 description: Factory review lens. Reviews a job branch for user experience (flows, states, copy, accessibility) and posts the `## round-<N> review-ux` comment.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
 
@@ -59,9 +59,15 @@ If the branch has no user-facing change, write PASS and say so.
 
 ## Post the review
 
-Compose it in a scratch file outside the worktree and the main checkout, such
-as `$TMPDIR/factory-<job-id>-review-ux-<N>.md`, then post it with
-`gh issue comment <n> -F <file>`.
+Post it from a heredoc, so nothing is written to disk:
+
+```bash
+gh issue comment <n> --body-file - <<'EOF'
+## round-<N> review-ux
+VERDICT: PASS
+...
+EOF
+```
 
 ```markdown
 ## round-<N> review-ux
