@@ -103,7 +103,7 @@ fi
 # the start of a code span, so `git push --force` in the Guard section does
 # not count as documenting --force.
 case_count=$((case_count + 1))
-for flag in --force --protect-main --no-protect-main --port --repo; do
+for flag in --force --protect-main --no-protect-main --install-agent-browser --port --repo; do
   grep -qF -- "\`$flag" "$TEMPLATE/README.md" || fail "'$flag' is missing from README.md"
 done
 

@@ -153,9 +153,13 @@ comment. Check the round's reviews on the issue, then run
    there.
 4. The builder and the UX and UI reviewers use the
    [`agent-browser`](https://github.com/vercel-labs/agent-browser) CLI to
-   check the running app. Install installs it with Homebrew when it is
-   missing. If you copied the folder by hand or have no Homebrew, install it
-   yourself if your project has pages to look at.
+   check the running app. Install does not install it unless you pass
+   `--install-agent-browser`. Without the flag it downloads nothing and
+   prints the command to run yourself:
+   `brew install agent-browser && agent-browser install`. With the flag it
+   installs it with Homebrew when it is missing. If you copied the folder by
+   hand or have no Homebrew, install it yourself if your project has pages to
+   look at.
 5. Commit the Template on a branch, open a pull request, merge it on GitHub
    and pull `main`, so `main`, local and remote, has the factory. Then run
    `/factory <feature>`.

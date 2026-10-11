@@ -3,7 +3,7 @@
 # Install of the software factory Template into a Target directory.
 #
 # Run: bash scripts/install-software-factory.sh
-#      bash scripts/install-software-factory.sh [--force] [--protect-main | --no-protect-main]
+#      bash scripts/install-software-factory.sh [--force] [--protect-main | --no-protect-main] [--install-agent-browser]
 #
 # Prompts for the Target path, then makes an Additive copy: every Template
 # file the Target does not have yet is added. Nothing that already exists in
@@ -28,11 +28,14 @@
 #                 it is and the Template's settings are printed to add by hand.
 #
 # The last steps check for the gh CLI, which the factory uses to keep each
-# Job on a GitHub Issue, protect the Target's main branch on GitHub, and
-# install the agent-browser CLI with Homebrew when it is not on the PATH yet.
+# Job on a GitHub Issue, protect the Target's main branch on GitHub, and look
+# for the agent-browser CLI on the PATH.
 # Main protection (on by default, --protect-main) requires a pull request
 # before merging and refuses force pushes and deletion. Protection that is
 # already set is left alone. --no-protect-main skips the step.
+# A missing agent-browser is installed with Homebrew only with
+# --install-agent-browser. Without the flag nothing is downloaded and the
+# command to run by hand is printed.
 #
 # See CONTEXT.md for the terms. Written for bash 3.2 (the macOS default).
 #
@@ -46,7 +49,7 @@ TEMPLATE_DIR="${SOFTWARE_FACTORY_TEMPLATE_DIR:-$SCRIPT_DIR/../src/software-facto
 
 AGENT_BROWSER_URL="https://github.com/vercel-labs/agent-browser#installation"
 GH_URL="https://cli.github.com"
-USAGE="Usage: bash scripts/install-software-factory.sh [--force] [--protect-main | --no-protect-main]"
+USAGE="Usage: bash scripts/install-software-factory.sh [--force] [--protect-main | --no-protect-main] [--install-agent-browser]"
 SETTINGS=".claude/settings.json"
 
 # Appends each Template PreToolUse entry ($template[0]) that the settings do
@@ -187,11 +190,19 @@ protect_main_failed() {
 
 # Installs the agent-browser CLI that the builder and the UI and UX reviewers
 # drive. It is machine-wide, so the step does nothing once it is on the PATH.
+# Without --install-agent-browser it downloads and runs nothing, and prints
+# the command to run by hand.
 # Homebrew keeps it reachable whichever Node version a Target pins; a global
 # npm install would be tied to one Node version.
 install_agent_browser() {
   if command -v agent-browser > /dev/null 2>&1; then
     printf 'agent-browser: already installed.\n'
+    return 0
+  fi
+
+  if [ "$install_agent_browser" = false ]; then
+    printf 'agent-browser: not installed. Run again with --install-agent-browser to install it with Homebrew, or run it yourself: brew install agent-browser && agent-browser install. Without Homebrew: %s\n' \
+      "$AGENT_BROWSER_URL"
     return 0
   fi
 
@@ -214,6 +225,7 @@ install_agent_browser() {
 
 force=false
 protect_main=""
+install_agent_browser=false
 for arg in "$@"; do
   case "$arg" in
     --force)
@@ -223,6 +235,10 @@ for arg in "$@"; do
     --protect-main | --no-protect-main)
       [ -z "$protect_main" ] || die "$USAGE"
       if [ "$arg" = --protect-main ]; then protect_main=true; else protect_main=false; fi
+      ;;
+    --install-agent-browser)
+      [ "$install_agent_browser" = false ] || die "$USAGE"
+      install_agent_browser=true
       ;;
     *) die "$USAGE" ;;
   esac
