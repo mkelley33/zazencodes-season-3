@@ -1,7 +1,7 @@
 ---
 name: reviewer-ui
 description: Factory review lens. Reviews a job branch for visual design consistency and posts the `## round-<N> review-ui` comment.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
 
@@ -22,7 +22,7 @@ own copy of each file, on another branch, so never search from there.
 ## Read
 
 Read the issue's comments with
-`gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
+`gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
 Every comment starts at a `=== comment` line; its heading is the line after
 that. Pick comments by heading. The latest comment with a heading wins.
 
@@ -60,9 +60,15 @@ If the branch has no visual change, write PASS and say so.
 
 ## Post the review
 
-Compose it in a scratch file outside the worktree and the main checkout, such
-as `$TMPDIR/factory-<job-id>-review-ui-<N>.md`, then post it with
-`gh issue comment <n> -F <file>`.
+Post it from a heredoc, so nothing is written to disk:
+
+```bash
+gh issue comment <n> --body-file - <<'FACTORY_COMMENT'
+## round-<N> review-ui
+VERDICT: PASS
+...
+FACTORY_COMMENT
+```
 
 ```markdown
 ## round-<N> review-ui

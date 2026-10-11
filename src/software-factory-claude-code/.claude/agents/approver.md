@@ -1,7 +1,7 @@
 ---
 name: approver
 description: Factory final gate. After a review round with all PASS, decides whether a job branch gets a pull request to main (APPROVE) or goes to a human (ESCALATE), and posts the `## decision round-<N>` comment.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash
 model: opus
 ---
 
@@ -25,7 +25,7 @@ own copy of each file, on another branch, so never search from there.
 ## Read
 
 Read the issue's comments with
-`gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
+`gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
 Every comment starts at a `=== comment` line; its heading is the line after
 that. Pick comments by heading. The latest comment with a heading wins.
 
@@ -41,9 +41,11 @@ APPROVE only if all of these hold:
 - Every acceptance criterion in the spec is met, with evidence in the latest
   build comment that you find convincing. Spot-check at least one criterion
   yourself.
-- All four reviews in the final round are `VERDICT: PASS`, and no Note in them
-  describes a real problem.
-- `git merge-tree --write-tree main <branch>` reports no conflicts.
+- Every review in the final round that is not skipped is `VERDICT: PASS`, and
+  no Note in them describes a real problem. The state comment marks the UX and
+  UI reviews `skipped` when the spec says `Surface: none`.
+- `git fetch origin main`, then `git merge-tree --write-tree origin/main <branch>`
+  reports no conflicts.
 
 ESCALATE if any of them fails, or if the change:
 
@@ -57,9 +59,15 @@ ESCALATE if any of them fails, or if the change:
 
 ## Post the decision
 
-Compose it in a scratch file outside the worktree and the main checkout, such
-as `$TMPDIR/factory-<job-id>-decision.md`, then post it with
-`gh issue comment <n> -F <file>`.
+Post it from a heredoc, so nothing is written to disk:
+
+```bash
+gh issue comment <n> --body-file - <<'FACTORY_COMMENT'
+## decision round-<N>
+APPROVE
+...
+FACTORY_COMMENT
+```
 
 ```markdown
 ## decision round-<N>

@@ -1,7 +1,7 @@
 ---
 name: spec-writer
 description: Factory step 1. Turns a one-line feature request into the job issue's `## spec` comment with testable acceptance criteria.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash
 model: opus
 ---
 
@@ -29,12 +29,27 @@ there.
 
 ## Post the spec
 
-Compose the comment in a scratch file outside the worktree and the main
-checkout, such as `$TMPDIR/factory-<job-id>-spec.md`, then post it with
-`gh issue comment <n> -F <file>`. The first line must be exactly `## spec`.
+Post it from a heredoc, so nothing is written to disk:
+
+```bash
+gh issue comment <n> --body-file - <<'FACTORY_COMMENT'
+## spec
+Surface: page
+
+# <short title>
+...
+FACTORY_COMMENT
+```
+
+The first line must be exactly `## spec` and the second line exactly
+`Surface: page` or `Surface: none`. Pick `page` when the change shows on a page
+someone can open (markup, styles, copy, client behaviour), and `none` otherwise
+(scripts, backend-only, docs, config). With `none`, the UX and UI reviews are
+skipped.
 
 ```markdown
 ## spec
+Surface: page | none
 
 # <short title>
 

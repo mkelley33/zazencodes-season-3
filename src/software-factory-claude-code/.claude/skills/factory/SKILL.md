@@ -1,13 +1,14 @@
 ---
 name: factory
-description: Run the software factory. Use when the user types /factory <feature>, /factory next, /factory approve <job-id>, or /factory rework <job-id> <note>. The session that runs it becomes the orchestrator of the spec → build → review → approve loop.
+description: Run the software factory. Use when the user types /factory <feature>, /factory next, /factory approve <job-id>, /factory rework <job-id> <note>, or /factory clean. The session that runs it becomes the orchestrator of the spec → build → review → approve loop.
 ---
 
 # Factory
 
 You are the orchestrator for one job. You run the loop below, spawn every agent,
 and are the only writer of your job's state comment and stage label. You never
-write code, specs, reviews or decisions yourself. Agents do the work and each
+write code, specs, reviews or decisions yourself, except the ESCALATE decision
+you post when review rounds run out. Agents do the work and each
 posts one comment on the job's GitHub issue; you move the job along and keep
 the issue current.
 
@@ -36,8 +37,9 @@ that a human merges on GitHub. A PR is opened only when the approver says
 | approve      | `approver`              | `## decision round-<N>`                      |
 
 `MAX_RESUMES = 2`: after round 1 the builder can be resumed at most twice, so a
-run has at most 3 review rounds. To change the factory, edit this file and the
-agent files in `.claude/agents/`.
+run has at most 3 review rounds. To change the factory, edit `BUILD_PROMPT.md`
+for the shape, this file for the procedure, and the agent files in
+`.claude/agents/`.
 
 Every agent reads `AGENTS.md` (or `CLAUDE.md`) for the repo's setup, dev server,
 validation commands and conventions. Nothing repo-specific lives in these files.
@@ -104,8 +106,9 @@ You post one comment and edit it in place on every change. Its first line is
 ````
 
 - `round` is the current review round (0 until the first round starts).
-- `reviews` holds the current round only. Each value is `pending`, `PASS` or
-  `CHANGES`. Earlier rounds live in their review comments.
+- `reviews` holds the current round only. Each value is `pending`, `PASS`,
+  `CHANGES` or `skipped`. `skipped` marks a review the spec's Surface makes
+  unnecessary. Earlier rounds live in their review comments.
 - `worktree` is always an absolute path.
 - Post it with `gh issue comment <n> -F <file>` and keep the comment id from
   `gh api repos/<owner>/<name>/issues/<n>/comments --jq '.[] | select(.body | startswith("## state")) | .id'`.
@@ -122,7 +125,7 @@ heading, and the latest comment with a heading wins.
 | --------------- | ------------------------------- | ------------------------ |
 | state           | `## state`                      | fenced JSON block        |
 | claim           | `factory: claimed <session-id>` | —                        |
-| spec            | `## spec`                       | —                        |
+| spec            | `## spec`                       | `Surface: page\|none`    |
 | build (round N) | `## build round-<N>`            | `STATUS: READY\|BLOCKED` |
 | review          | `## round-<N> review-<kind>`    | `VERDICT: PASS\|CHANGES` |
 | rework          | `## rework-<k>`                 | note verbatim            |
@@ -130,7 +133,7 @@ heading, and the latest comment with a heading wins.
 | pr              | `## pr`                         | the pull request URL     |
 
 Read comments with
-`gh issue view <n> --comments --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
+`gh issue view <n> --json comments --jq '.comments[] | "=== comment \(.createdAt)\n\(.body)"'`.
 Every comment starts at a `=== comment` line; its heading is the line after
 that. To check one artifact, take the latest comment with its heading and read
 the line after the heading. Headings carry the round, so an artifact from an
@@ -148,8 +151,10 @@ gets `5100 + 10n`, `reviewer-ux` gets `5101 + 10n` and `reviewer-ui` gets
 
 ## /factory <feature>
 
-1. **Create the job.** Make sure the labels exist, so a fresh repo works on
-   its first run: `gh label create factory --force --color 0E8A16 --description "Software factory job"`,
+1. **Create the job.** Run `bash factory/clean.sh` first and relay its output.
+   If it fails, tell the user why and carry on. Make sure the labels exist, so
+   a fresh repo works on its first run:
+   `gh label create factory --force --color 0E8A16 --description "Software factory job"`,
    then the same for the six stage labels (`factory:spec`, `factory:build`,
    `factory:review`, `factory:approve`, `factory:pr`, `factory:needs-human`).
    Open the issue:
@@ -198,19 +203,22 @@ Read the second line of the latest `## build round-<N>` comment.
 ### Review round N
 
 1. Set the stage to `factory:review` and the state comment to `round: N` with
-   all four reviews `pending`.
-2. Spawn all four reviewers **in one message**, so they run in parallel. Each
-   gets the prompt `<paths> Review round N.`, plus its port for `reviewer-ux`
-   and `reviewer-ui`.
+   all four reviews `pending`. If line 2 of the latest `## spec` comment is
+   exactly `Surface: none`, set `ux` and `ui` to `skipped` instead.
+2. Spawn the reviewers **in one message**, so they run in parallel: all four,
+   or only `reviewer-security` and `reviewer-code` when the Surface is `none`.
+   Any other Surface line runs all four. Each gets the prompt
+   `<paths> Review round N.`, plus its port for `reviewer-ux` and
+   `reviewer-ui`.
 3. **WAIT FOR ALL.** Each time a reviewer finishes, read the second line of
    its `## round-N review-<kind>` comment (`VERDICT: PASS` or
    `VERDICT: CHANGES`) and write that verdict into the state comment straight
    away, so the dashboard chips fill in as they land. The round is done only
-   when all four review comments for round N exist. Never resume the builder
-   mid-round. If a reviewer finishes without posting its comment, or its second
-   line isn't a verdict, stop and tell the user.
-4. Decide:
-   - **All PASS**: go to **Approve**.
+   when every review that is not skipped has its comment for round N. Never
+   resume the builder mid-round. If a reviewer finishes without posting its
+   comment, or its second line isn't a verdict, stop and tell the user.
+4. Decide, counting only the reviews that are not skipped:
+   - **All PASS** (every review that is not skipped is PASS): go to **Approve**.
    - **Any CHANGES, resumes left**: set the stage to `factory:build`, then
      resume the same builder with `SendMessage` to `builder-<job-id>`:
      `Round N reviews are on issue #<n>. Address every review with VERDICT: CHANGES, commit, and post the build comment for round N+1.`
@@ -228,8 +236,10 @@ Read the second line of the latest `## build round-<N>` comment.
 ### Approve
 
 Set the stage to `factory:approve`. Spawn `approver` with the prompt
-`<paths> Final round: N.` When it finishes, read the second line of the
-`## decision round-N` comment:
+`<paths> Final round: N.` The approver checks for conflicts against the
+remote `main`, which the local one may lag: `git fetch origin main`, then
+`git merge-tree --write-tree origin/main <branch>`. When it finishes, read the
+second line of the `## decision round-N` comment:
 
 - `APPROVE`: go to **Pull request**.
 - `ESCALATE`: go to **Needs human**.
@@ -252,13 +262,13 @@ gh issue edit <n> --add-label factory:pr --remove-label factory:<current stage>
 
 The body file lives in your scratchpad. It starts with `Closes #<n>.`, a blank
 line, then the `## Why` section of the latest `## decision round-N` comment,
-then a line naming the final round and that all four reviews passed. Post the
+then a line naming the final round and that every review that was not skipped
+passed. Post the
 PR URL on the issue as a comment: `## pr` on line 1, the URL on line 2.
 
 The branch and its worktree stay until the human merges the PR, so a review
 comment on GitHub can be answered with `/factory rework <job-id> <note>`.
-After the PR is merged, the human runs
-`git worktree remove <worktree> && git branch -d factory/<job-id>`.
+After the PR is merged, run `/factory clean`.
 
 If the push or `gh pr create` fails, set the stage to `factory:needs-human`
 and tell the user why. Never force-push.
@@ -272,14 +282,19 @@ reason from the build comment).
 
 ## /factory next
 
-1. List the queue: open `factory` issues with no stage label, oldest first:
+1. Run `bash factory/clean.sh` first and relay its output. If it fails, tell
+   the user why and carry on. List the queue: open `factory` issues with no
+   stage label, oldest first:
    `gh issue list --label factory --state open -L 500 --json number,title,labels,createdAt --jq '[.[] | select(all(.labels[].name; startswith("factory:") | not))] | sort_by(.createdAt) | .[] | "\(.number)\t\(.title)"'`
    If it prints nothing, say the queue is empty and stop.
 2. Claim the first issue. Make a session id once per session, for example
    `$(hostname)-$$-$(date +%s)`, and post the comment
-   `factory: claimed <session-id>`. Then re-read the comments: the earliest
-   comment whose first line starts with `factory: claimed` wins. If it is not
-   yours, another session took the issue: go back to step 1 and skip it.
+   `factory: claimed <session-id>`. Then re-read the comments: the
+   `factory: claimed` comment with the lowest comment id wins. This prints
+   each claim's id and first line:
+   `gh api repos/<owner>/<name>/issues/<n>/comments --paginate --jq '.[] | select(.body | startswith("factory: claimed")) | "\(.id) \(.body | split("\n")[0])"'`
+   If the winning claim is not yours, another session took the issue: go back
+   to step 1 and skip it.
 3. Run `/factory <feature>` with the issue's title as the feature, starting
    from the job id in step 1 instead of creating a new issue.
 
@@ -301,6 +316,13 @@ The job must have the `factory:needs-human` label.
    `<paths> Rework: read the rework-<k> comment and address it, then post the build comment for round N+1. Port: <port>.`
    (`N` is the job's last round.) A rework run gets a fresh `MAX_RESUMES`.
 4. Continue from **Build check**, exactly like a new job.
+
+## /factory clean
+
+Run `bash factory/clean.sh` from the main checkout and relay its output. For
+every closed job whose PR was merged, it removes the job's worktree and
+branch, and it reports and keeps any worktree with uncommitted changes.
+`bash factory/clean.sh --dry-run` only says what it would remove.
 
 ## Reporting
 

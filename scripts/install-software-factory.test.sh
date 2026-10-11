@@ -28,6 +28,8 @@ case_dir=""
 template=""
 target=""
 call_log=""
+gh_log=""
+run_path=""
 run_home=""
 run_cwd=""
 output=""
@@ -42,6 +44,7 @@ write_file() {
 
 # Starts a new case: an empty Target and a fixture Template with four files to
 # install. agent-browser and gh are on the PATH unless a case removes them.
+# main has no protection yet and setting it succeeds.
 begin_case() {
   case_count=$((case_count + 1))
   case_name="$1"
@@ -49,12 +52,15 @@ begin_case() {
   template="$case_dir/template"
   target="$case_dir/target"
   call_log="$case_dir/calls.log"
+  gh_log="$case_dir/gh.log"
+  run_path="$case_dir/bin:/usr/bin:/bin"
   run_home="$HOME"
   run_cwd="$WORK"
   mkdir -p "$target" "$case_dir/bin"
   : > "$call_log"
+  : > "$gh_log"
   fake_command agent-browser 0
-  fake_command gh 0
+  fake_gh 1 0
   write_file "$template/.claude/agents/builder.md" "template builder"
   write_file "$template/.claude/skills/factory/SKILL.md" "template skill"
   write_file "$template/factory/dashboard.html" "template dashboard"
@@ -73,6 +79,42 @@ FAKE
   chmod +x "$case_dir/bin/$1"
 }
 
+# Puts a fake gh on the case's PATH that records its arguments in its own log,
+# so the brew and agent-browser call log stays as it was. `gh repo view`
+# answers octo/repo and saves the directory it ran in. Reading main's
+# protection exits with status $1 and setting it exits with status $2, saving
+# the JSON it was given. A failing call prints gh's error line on stderr.
+fake_gh() {
+  cat > "$case_dir/bin/gh" <<FAKE
+#!/bin/bash
+printf 'gh %s\n' "\$*" >> "$gh_log"
+case "\$*" in
+  "repo view"*) pwd -P > "$case_dir/gh-repo-view.cwd"; printf 'octo/repo\n' ;;
+  "api -X PUT "*)
+    cat > "$case_dir/gh-put.json"
+    [ $2 -eq 0 ] || { printf 'HTTP 403: Resource not accessible by integration\n' >&2; exit $2; } ;;
+  "api "*) [ $1 -eq 0 ] || { printf 'gh: Branch not protected (HTTP 404)\n' >&2; exit $1; } ;;
+esac
+exit 0
+FAKE
+  chmod +x "$case_dir/bin/gh"
+}
+
+# Copies the real Template's settings.json, which holds the Guard, into the
+# fixture Template. The other cases keep their four-file fixture.
+add_template_settings() {
+  cp "$REAL_TEMPLATE/.claude/settings.json" "$template/.claude/settings.json"
+}
+
+# Runs the script with only the case's bin directory on the PATH, holding
+# links to every tool the script uses except jq.
+hide_jq() {
+  for tool in bash cat cmp cp dirname find git mktemp rm rsync sed sort tail; do
+    ln -s "$(command -v "$tool")" "$case_dir/bin/$tool"
+  done
+  run_path="$case_dir/bin"
+}
+
 # Makes agent-browser missing, with a fake Homebrew that installs a fake
 # agent-browser whose own commands exit with status $1.
 agent_browser_missing_with_brew() {
@@ -87,7 +129,7 @@ agent_browser_missing_with_brew() {
 run_install() {
   typed="$1"
   shift
-  output="$(cd "$run_cwd" && printf '%s\n' "$typed" | env PATH="$case_dir/bin:/usr/bin:/bin" \
+  output="$(cd "$run_cwd" && printf '%s\n' "$typed" | env PATH="$run_path" \
     HOME="$run_home" SOFTWARE_FACTORY_TEMPLATE_DIR="$template" bash "$SCRIPT" "$@" 2>&1)"
   status=$?
 }
@@ -494,6 +536,172 @@ assert_failed
 assert_output_contains "--force"
 assert_output_lacks "Target path:"
 assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
+
+# --- Hook merge ---------------------------------------------------------------
+
+# shellcheck disable=SC2016 # the hook command is stored literally
+GUARD_COMMAND='bash "$CLAUDE_PROJECT_DIR/.claude/hooks/factory-guard.sh"'
+MY_SETTINGS='{"permissions":{"allow":["Bash(ls)"]},"hooks":{"PreToolUse":[{"matcher":"Write","hooks":[{"type":"command","command":"node mine.mjs"}]}]}}'
+
+# Prints how many PreToolUse hooks in $1 run the Guard.
+guard_count() {
+  jq --arg c "$GUARD_COMMAND" '[.hooks.PreToolUse[].hooks[] | select(.command == $c)] | length' "$1"
+}
+
+begin_case "Hook merge adds the Guard to an existing settings.json once"
+add_template_settings
+write_file "$target/.claude/settings.json" "$MY_SETTINGS"
+run_install "$target"
+assert_status 0
+assert_output_contains "Hook merge: added the Guard to .claude/settings.json."
+assert_output_contains "4 added, 0 identical, 1 different"
+assert_output_contains "  .claude/settings.json (apart from the Hook merge above)"
+assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
+assert_equal '{"allow":["Bash(ls)"]}' "$(jq -c .permissions "$target/.claude/settings.json")" \
+  "expected permissions to stay as they were"
+assert_equal '{"matcher":"Write","hooks":[{"type":"command","command":"node mine.mjs"}]}' \
+  "$(jq -c '.hooks.PreToolUse[0]' "$target/.claude/settings.json")" \
+  "expected the Target's own PreToolUse hook to stay first and unchanged"
+assert_equal "2" "$(jq '.hooks.PreToolUse | length' "$target/.claude/settings.json")" \
+  "expected two PreToolUse entries"
+
+begin_case "second Hook merge leaves settings.json byte-identical"
+add_template_settings
+write_file "$target/.claude/settings.json" "$MY_SETTINGS"
+run_install "$target"
+before="$(cksum < "$target/.claude/settings.json")"
+run_install "$target"
+assert_status 0
+assert_output_contains "Hook merge: .claude/settings.json already has the Guard."
+assert_equal "$before" "$(cksum < "$target/.claude/settings.json")" "expected the second run to change nothing"
+
+begin_case "Hook merge creates hooks when the Target settings have none"
+add_template_settings
+write_file "$target/.claude/settings.json" '{"model":"opus"}'
+run_install "$target"
+assert_status 0
+assert_output_contains "Hook merge: added the Guard"
+assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
+assert_equal '"opus"' "$(jq -c .model "$target/.claude/settings.json")" "expected model to stay"
+
+begin_case "--force does not Overwrite a different settings.json but Hook merges it"
+add_template_settings
+write_file "$target/.claude/settings.json" "$MY_SETTINGS"
+run_install "$target" --force
+assert_status 0
+assert_output_contains "Done: 4 added, 0 identical, 1 different, 0 overwritten."
+assert_output_lacks "Overwritten ("
+assert_output_contains "Hook merge: added the Guard"
+assert_equal '{"allow":["Bash(ls)"]}' "$(jq -c .permissions "$target/.claude/settings.json")" \
+  "expected permissions to survive --force"
+assert_equal "1" "$(guard_count "$target/.claude/settings.json")" "expected the Guard exactly once"
+
+begin_case "settings.json identical to the Template's is not touched"
+add_template_settings
+mkdir -p "$target/.claude"
+cp "$template/.claude/settings.json" "$target/.claude/settings.json"
+before="$(cksum < "$target/.claude/settings.json")"
+run_install "$target"
+assert_status 0
+assert_output_contains "4 added, 1 identical, 0 different"
+assert_output_lacks "Hook merge"
+assert_equal "$before" "$(cksum < "$target/.claude/settings.json")" "expected settings.json unchanged"
+
+begin_case "missing jq warns, prints the Guard block and leaves settings.json alone"
+add_template_settings
+write_file "$target/.claude/settings.json" "$MY_SETTINGS"
+before="$(cksum < "$target/.claude/settings.json")"
+hide_jq
+run_install "$target" --no-protect-main
+assert_status 0
+assert_output_contains "Hook merge: jq was not found"
+assert_output_contains ".claude/settings.json"
+assert_output_contains '"PreToolUse"'
+assert_output_contains "factory-guard.sh"
+assert_output_lacks "Hook merge: added"
+assert_equal "$before" "$(cksum < "$target/.claude/settings.json")" "expected settings.json unchanged"
+assert_content "$target/factory/dashboard.html" "template dashboard"
+
+begin_case "invalid settings.json warns and is left alone"
+add_template_settings
+write_file "$target/.claude/settings.json" '{"permissions": '
+before="$(cksum < "$target/.claude/settings.json")"
+run_install "$target"
+assert_status 0
+assert_output_contains "Hook merge: could not merge"
+assert_output_contains ".claude/settings.json"
+assert_output_contains "factory-guard.sh"
+assert_equal "$before" "$(cksum < "$target/.claude/settings.json")" "expected settings.json unchanged"
+
+# --- main protection ----------------------------------------------------------
+
+begin_case "default run sets main protection after the gh check"
+git init -q "$target"
+run_install "$target"
+assert_status 0
+assert_equal "gh repo view --json nameWithOwner -q .nameWithOwner
+gh api repos/octo/repo/branches/main/protection
+gh api -X PUT repos/octo/repo/branches/main/protection --input -" "$(cat "$gh_log")" \
+  "expected the repo lookup, the protection read, then the PUT"
+assert_equal "$target" "$(cat "$case_dir/gh-repo-view.cwd" 2> /dev/null)" "expected gh repo view to run in the Target"
+assert_equal '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":{"required_approving_review_count":0},"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}' \
+  "$(jq -c . "$case_dir/gh-put.json" 2> /dev/null)" "expected the protection JSON"
+assert_output_contains "main protection: set (pull request required, no force pushes, no deletions)."
+case "$output" in
+  *"gh: found"*"main protection: set"*"agent-browser: already installed"*) ;;
+  *) fail "expected main protection between the gh check and agent-browser. Output: $output" ;;
+esac
+
+begin_case "--protect-main sets main protection and combines with --force in any order"
+run_install "$target" --protect-main --force
+assert_status 0
+assert_output_contains "main protection: set"
+assert_output_contains "0 overwritten"
+
+begin_case "--no-protect-main makes no gh call"
+run_install "$target" --no-protect-main
+assert_status 0
+assert_output_contains "main protection: skipped (--no-protect-main)."
+assert_equal "" "$(cat "$gh_log")" "expected no gh calls"
+
+begin_case "existing main protection is left unchanged"
+fake_gh 0 0
+run_install "$target"
+assert_status 0
+assert_output_contains "main protection: already set, left unchanged."
+assert_output_lacks "main protection: set ("
+case "$(cat "$gh_log")" in
+  *"-X PUT"*) fail "expected no PUT. gh calls: $(cat "$gh_log")" ;;
+esac
+
+begin_case "a refused protection PUT warns with gh's error and exits 0"
+fake_gh 1 1
+run_install "$target"
+assert_status 0
+assert_output_contains "main protection:"
+assert_output_contains "HTTP 403: Resource not accessible by integration"
+assert_output_lacks "main protection: set ("
+assert_output_contains "agent-browser: already installed"
+
+begin_case "missing gh skips main protection"
+rm "$case_dir/bin/gh"
+run_install "$target"
+assert_status 0
+assert_output_lacks "main protection: set"
+assert_equal "" "$(cat "$gh_log")" "expected no gh calls"
+
+begin_case "--protect-main with --no-protect-main is rejected before the prompt"
+before="$(snapshot "$case_dir")"
+run_install "$target" --protect-main --no-protect-main
+assert_failed
+assert_output_contains "Usage: bash scripts/install-software-factory.sh [--force] [--protect-main | --no-protect-main]"
+assert_output_lacks "Target path:"
+assert_equal "$before" "$(snapshot "$case_dir")" "expected nothing to change"
+
+begin_case "--no-protect-main given twice is rejected before the prompt"
+run_install "$target" --no-protect-main --no-protect-main
+assert_failed
+assert_output_lacks "Target path:"
 
 # --- summary ----------------------------------------------------------------
 

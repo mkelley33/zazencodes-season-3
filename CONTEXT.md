@@ -12,7 +12,7 @@ The content of `src/software-factory-claude-code`, laid out like a repository ro
 _Avoid_: Source, factory
 
 **Install**:
-An Additive copy of the Template into a Target, followed by the setup the Target needs before its first factory run. With `--force`, the Install also makes an Overwrite of every different Skip that is a regular file.
+An Additive copy of the Template into a Target, followed by the setup the Target needs before its first factory run: a Hook merge into the Target's existing settings, and protection of the Target's `main` branch on GitHub unless told not to. With `--force`, the Install also makes an Overwrite of every different Skip that is a regular file, apart from the Target's settings.
 _Avoid_: Copy, deploy
 
 **Target**:
@@ -50,7 +50,7 @@ The open Issues labeled `factory` that no session has started.
 _Avoid_: Backlog
 
 **Claim**:
-A session's comment that takes an Issue from the Queue. The earliest Claim wins.
+A session's comment that takes an Issue from the Queue. The Claim with the lowest comment id wins.
 _Avoid_: Lock, assignment
 
 **Stage label**:
@@ -68,3 +68,23 @@ _Avoid_: File
 **Follow-up**:
 An Issue opened for a review finding left unresolved when a Job escalates. A Follow-up enters the Queue.
 _Avoid_: Child issue
+
+**Surface**:
+Whether a Job's change shows on a page someone can open: `page` or `none`. The spec states it.
+_Avoid_: UI flag
+
+**Skipped review**:
+A review the Surface makes unnecessary: the UX and UI reviews of a Job whose Surface is `none`. A round counts only the reviews that are not skipped.
+_Avoid_: N/A
+
+**Guard**:
+The rule that blocks merges, pushes to `main` and commits on `main`, so a Job reaches `main` only through a pull request a human merges.
+_Avoid_: Hook, protection
+
+**Hook merge**:
+The Install adding the Guard to a Target's existing settings, leaving everything else in them as it was.
+_Avoid_: Patch
+
+**Clean**:
+Removing the worktree and branch of a Job whose pull request was merged.
+_Avoid_: Cleanup, gc
